@@ -1,0 +1,68 @@
+name: CI
+
+on:
+  push:
+    branches: [main, master]
+  pull_request:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        go: ["1.22", "stable"]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: ${{ matrix.go }}
+      - name: gofmt
+        run: test -z "$(gofmt -l .)"
+      - name: vet
+        run: go vet ./...
+      - name: test
+        run: go test -race -cover ./...
+
+  staticcheck:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: stable
+      - name: staticcheck
+        run: go run honnef.co/go/tools/cmd/staticcheck@latest ./...
+
+  fuzz:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        fuzz:
+          - FuzzCursorNeverPanicsWhenEnoughBytes
+          - FuzzCursorNavigation
+          - FuzzULEB128RoundTrip
+          - FuzzSLEB128RoundTrip
+          - FuzzCStr
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: stable
+      - name: fuzz ${{ matrix.fuzz }}
+        run: go test -run=^$ -fuzz=^${{ matrix.fuzz }}$ -fuzztime=30s .
+
+  cross:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: stable
+      - name: build windows/amd64
+        run: GOOS=windows GOARCH=amd64 go build ./...
+      - name: build linux/arm64
+        run: GOOS=linux GOARCH=arm64 go build ./...
+      - name: test linux/386
+        run: GOOS=linux GOARCH=386 go test ./...
