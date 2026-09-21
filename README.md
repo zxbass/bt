@@ -28,6 +28,8 @@ price := c.F32LE()
 go get github.com/zxbass/bt
 ```
 
+Requires Go 1.23+ (iterators).
+
 ## API
 
 | Group | Methods |
@@ -38,7 +40,10 @@ go get github.com/zxbass/bt
 | Floats | `F32`/`F64` (`order` + `LE`/`BE`) |
 | Varints | `ULEB128`, `SLEB128` |
 | Strings | `CStr`, `CStrOrRest`, `StrOrRest`, `RawStr`, `StrUnsafe` |
-| Errors | `ErrNoNul` (used by `CStr`) |
+| Iterators | `Records`, `IndexedRecords`, `Chunks` |
+| Streams | `Stream`: `Fill`, `Cursor`, `Advance`, `Discard`, `Buffered`, `Err`, `WithMaxBuffer` |
+| `io` interop | `NewCursorFromReader`, `Read`, `ReadByte` |
+| Errors | `ErrNoNul` (used by `CStr`), `ErrBufferLimit` (used by `Stream`) |
 
 `Sub(n)` returns an independent cursor over the next `n` bytes and advances the
 parent. Use it to parse a length-delimited record without letting its reads
@@ -49,6 +54,66 @@ record := c.Sub(int(c.U16LE()))
 kind := record.U8()
 name := record.StrOrRest(record.BytesLeft())
 ```
+
+## Iterators
+
+Fixed-size records and zero-copy chunks, with no allocations per iteration:
+
+```go
+for rec := range c.Records(recSize) {
+	id := rec.U16LE()
+}
+
+for i, rec := range c.IndexedRecords(recSize) {
+	_ = i
+	_ = rec
+}
+
+for chunk := range c.Chunks(1 << 20) {
+	h.Write(chunk)
+}
+```
+
+Iteration consumes the parent cursor. A size that is not positive or a trailing
+partial record panics.
+
+## Streaming
+
+`Stream` adapts an `io.Reader`: `Fill` guarantees a window of bytes, and the
+usual `Cursor` parses inside it. I/O errors are returned by `Fill` (sticky,
+`Err()` exposes `io.EOF`); parsing errors are still panics.
+
+```go
+st := bt.NewStream(r)
+for {
+	if err := st.Fill(4); err != nil {
+		if errors.Is(err, io.ErrUnexpectedEOF) && st.Buffered() == 0 {
+			break
+		}
+		return err
+	}
+	c := st.Cursor()
+	kind := c.U8()
+	size := int(c.U16LE())
+	st.Advance(3)
+
+	if err := st.Fill(size); err != nil {
+		return err
+	}
+	body := st.Cursor().Bytes(size)
+	st.Advance(size)
+	_ = kind
+	_ = body
+}
+```
+
+Cursors from `Cursor()` are invalidated by the next `Fill`/`Advance` because the
+window may move or compact. `WithMaxBuffer(n)` caps memory and makes `Fill`
+return `ErrBufferLimit` instead of growing further.
+
+For one-shot use, `NewCursorFromReader(r)` reads the whole stream and returns a
+regular `Cursor`. `Cursor` also implements `io.Reader` and `io.ByteReader`
+(`Read`/`ReadByte` return `io.EOF` instead of panicking).
 
 ## Contract
 
@@ -76,6 +141,10 @@ machine-dependent; the comparison columns are from the same run.
 | `SLEB128` (1/2 bytes) | 2.9 / 3.3 ns | — |
 | `RawStr(4)` / `StrUnsafe(4)` | 30 ns / 13 ns, 1 / 0 allocs | — |
 | `ParseRecords` (mixed fields + name strings) | 461 MB/s, ~38 ns/record | — |
+| `Records(16)` iteration (64 KiB) | ~6 GB/s, 0 allocs | — |
+| `Chunks(16)` iteration (64 KiB) | ~11.7 GB/s, 0 allocs | — |
+| `Sub(16)` loop (same data) | ~0.3 GB/s, 1 alloc/record | — |
+| `Stream` over `bytes.Reader` (16-byte records) | ~1 GB/s, ~15 ns/record | — |
 | `UnsafeCast` (no bounds check, native endian) | 0.54 ns | — |
 
 The panic-on-out-of-bounds contract costs about 1 ns per numeric read versus a

@@ -3,7 +3,10 @@ package bt
 import (
 	"bytes"
 	"encoding/binary"
+	"errors"
+	"io"
 	"testing"
+	"testing/iotest"
 )
 
 var (
@@ -289,6 +292,87 @@ func BenchmarkParseRecords(b *testing.B) {
 		}
 	}
 	b.ReportMetric(float64(records)/float64(b.N), "records/op")
+}
+
+func BenchmarkRecordsIter(b *testing.B) {
+	data := benchBuf()
+	b.SetBytes(int64(len(data)))
+	b.ReportAllocs()
+
+	for i := 0; i < b.N; i++ {
+		c := NewCursor(data)
+		for rec := range c.Records(16) {
+			sinkU8 = rec.U8()
+		}
+	}
+}
+
+func BenchmarkSubLoop(b *testing.B) {
+	data := benchBuf()
+	b.SetBytes(int64(len(data)))
+	b.ReportAllocs()
+
+	for i := 0; i < b.N; i++ {
+		c := NewCursor(data)
+		for c.CanRead(16) {
+			sinkU8 = c.Sub(16).U8()
+		}
+	}
+}
+
+func BenchmarkChunksIter(b *testing.B) {
+	data := benchBuf()
+	b.SetBytes(int64(len(data)))
+	b.ReportAllocs()
+
+	for i := 0; i < b.N; i++ {
+		c := NewCursor(data)
+		for chunk := range c.Chunks(16) {
+			sinkBytes = chunk
+		}
+	}
+}
+
+func benchStream(b *testing.B, total int, newReader func() io.Reader) {
+	const recSize = 16
+	b.SetBytes(int64(total))
+	b.ReportAllocs()
+
+	records := 0
+	for i := 0; i < b.N; i++ {
+		st := NewStream(newReader())
+		for {
+			if err := st.Fill(recSize); err != nil {
+				if errors.Is(err, io.ErrUnexpectedEOF) && st.Buffered() == 0 {
+					break
+				}
+				b.Fatal(err)
+			}
+			c := st.Cursor()
+			c.U8()
+			c.U16LE()
+			c.U32LE()
+			c.U64LE()
+			c.U8()
+			st.Advance(recSize)
+			records++
+		}
+	}
+	b.ReportMetric(float64(records)/float64(b.N), "records/op")
+}
+
+func BenchmarkStreamFixedRecords(b *testing.B) {
+	data := benchBuf()
+
+	b.Run("bytes.Reader", func(b *testing.B) {
+		benchStream(b, len(data), func() io.Reader { return bytes.NewReader(data) })
+	})
+	b.Run("chunk7", func(b *testing.B) {
+		benchStream(b, len(data), func() io.Reader { return &chunkReader{data: data, chunk: 7} })
+	})
+	b.Run("onebyte", func(b *testing.B) {
+		benchStream(b, len(data), func() io.Reader { return iotest.OneByteReader(bytes.NewReader(data)) })
+	})
 }
 
 func BenchmarkStdlibBinaryRead(b *testing.B) {

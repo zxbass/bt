@@ -1,5 +1,15 @@
 # Changelog
 
+## v0.2.0 - 2026-09-21
+
+- `NewCursorFromReader` plus `Read`/`ReadByte`, so `Cursor` implements
+  `io.Reader` and `io.ByteReader`.
+- Iterators: `Records`, `IndexedRecords` and `Chunks` (`iter.Seq`/`iter.Seq2`,
+  zero allocations per iteration). Requires Go 1.23.
+- `Stream`: incremental parsing from an `io.Reader` with `Fill`, `Cursor`,
+  `Advance`, `Discard`, `Buffered`, `Err`, `WithMaxBuffer` and
+  `ErrBufferLimit`. Existing cursor hot paths are unchanged.
+
 ## v0.1.0 - 2026-09-21
 
 Initial release.
