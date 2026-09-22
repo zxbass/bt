@@ -1,5 +1,15 @@
 # Changelog
 
+## v0.4.0 - 2026-09-22
+
+- Varint decoding is unrolled: `ULEB128` and `SLEB128` resolve three- to
+  ten-byte values in a flat fast path (10-byte varints ~2.5x faster, no
+  regression for one- and two-byte values).
+- Stateless append helpers: `AppendU24LE`, `AppendU24BE`, `AppendULEB128`,
+  `AppendSLEB128`, plus `ULEB128Size`/`SLEB128Size` for exact buffer sizing.
+- `Cursor.Align` skips and `Writer.Align` writes padding up to a size multiple,
+  relative to the start of the buffer.
+
 ## v0.3.0 - 2026-09-22
 
 - `Writer`: append-style encoding for scalars, varints and strings, with

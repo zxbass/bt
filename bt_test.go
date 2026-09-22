@@ -282,6 +282,7 @@ func TestCursorULEB128(t *testing.T) {
 		{"128", []byte{0x80, 0x01}, 128},
 		{"300", []byte{0xAC, 0x02}, 300},
 		{"624485", []byte{0xE5, 0x8E, 0x26}, 624485},
+		{"1<<21", []byte{0x80, 0x80, 0x80, 0x01}, 1 << 21},
 		{"max", []byte{0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0x01}, math.MaxUint64},
 	}
 	for _, tt := range tests {
@@ -305,6 +306,7 @@ func TestCursorULEB128Errors(t *testing.T) {
 	}{
 		{"truncated empty", nil},
 		{"truncated continuation", []byte{0x80}},
+		{"truncated mid", []byte{0x80, 0x80}},
 		{"truncated long", []byte{0x80, 0x80, 0x80}},
 		{"overflow 10th byte", []byte{0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0x02}},
 		{"continuation at 63", []byte{0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0x80}},
@@ -329,6 +331,77 @@ func TestCursorULEB128RollsBackToStart(t *testing.T) {
 	mustPanic(t, "bt: ", func() { c.ULEB128() })
 	if got, want := c.Pos(), 1; got != want {
 		t.Fatalf("Pos() after failed ULEB128 = %d, want %d", got, want)
+	}
+}
+
+func TestCursorVarintLengths(t *testing.T) {
+	for k := 1; k <= 10; k++ {
+		v := uint64(0)
+		if k > 1 {
+			v = 1 << (7 * (k - 1))
+		}
+		enc := binary.AppendUvarint(nil, v)
+		if len(enc) != k {
+			t.Fatalf("Uvarint(%d) took %d bytes, want %d", v, len(enc), k)
+		}
+		c := NewCursor(enc)
+		if got := c.ULEB128(); got != v {
+			t.Fatalf("ULEB128(%d-byte) = %d, want %d", k, got, v)
+		}
+		if c.BytesLeft() != 0 {
+			t.Fatalf("ULEB128(%d-byte) left %d bytes", k, c.BytesLeft())
+		}
+	}
+
+	for k := 1; k <= 9; k++ {
+		v := int64(0)
+		if k > 1 {
+			v = 1 << (7 * (k - 1))
+		}
+		enc := encodeSLEB(v)
+		if len(enc) != k {
+			t.Fatalf("SLEB128(%d) took %d bytes, want %d", v, len(enc), k)
+		}
+		c := NewCursor(enc)
+		if got := c.SLEB128(); got != v {
+			t.Fatalf("SLEB128(%d-byte) = %d, want %d", k, got, v)
+		}
+		if c.BytesLeft() != 0 {
+			t.Fatalf("SLEB128(%d-byte) left %d bytes", k, c.BytesLeft())
+		}
+	}
+
+	for _, v := range []int64{
+		-(1 << 31), -(1 << 38), -(1 << 45), -(1 << 52), -(1 << 59),
+		math.MinInt64, math.MaxInt64,
+	} {
+		c := NewCursor(encodeSLEB(v))
+		if got := c.SLEB128(); got != v {
+			t.Fatalf("SLEB128(%d) = %d, want %d", v, got, v)
+		}
+		if c.BytesLeft() != 0 {
+			t.Fatalf("SLEB128(%d) left %d bytes", v, c.BytesLeft())
+		}
+	}
+}
+
+func TestCursorVarintTruncatedPrefixes(t *testing.T) {
+	u := []byte{0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0x01}
+	for i := range u {
+		c := NewCursor(u[:i])
+		mustPanic(t, "bt: ", func() { c.ULEB128() })
+		if got := c.Pos(); got != 0 {
+			t.Fatalf("ULEB128 prefix %d moved offset to %d", i, got)
+		}
+	}
+
+	s := []byte{0x80, 0x80, 0x80, 0x80, 0x80, 0x80, 0x80, 0x80, 0x80, 0x7F}
+	for i := range s {
+		c := NewCursor(s[:i])
+		mustPanic(t, "bt: ", func() { c.SLEB128() })
+		if got := c.Pos(); got != 0 {
+			t.Fatalf("SLEB128 prefix %d moved offset to %d", i, got)
+		}
 	}
 }
 
@@ -401,6 +474,9 @@ func TestCursorSLEB128(t *testing.T) {
 		{"129", []byte{0x81, 0x01}, 129},
 		{"minus 2", []byte{0x7E}, -2},
 		{"minus 8193", []byte{0xFF, 0xBF, 0x7F}, -8193},
+		{"8192", []byte{0x80, 0xC0, 0x00}, 8192},
+		{"1<<20", []byte{0x80, 0x80, 0xC0, 0x00}, 1 << 20},
+		{"-(1<<27)", []byte{0x80, 0x80, 0x80, 0x40}, -(1 << 27)},
 		{"max int64", []byte{0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0x00}, math.MaxInt64},
 		{"min int64", []byte{0x80, 0x80, 0x80, 0x80, 0x80, 0x80, 0x80, 0x80, 0x80, 0x7F}, math.MinInt64},
 	}
@@ -425,6 +501,7 @@ func TestCursorSLEB128Errors(t *testing.T) {
 	}{
 		{"truncated empty", nil},
 		{"truncated continuation", []byte{0x80}},
+		{"truncated mid", []byte{0x80, 0x80}},
 		{"truncated long", []byte{0x80, 0x80, 0x80}},
 		{"overflow 10th byte positive", []byte{0x80, 0x80, 0x80, 0x80, 0x80, 0x80, 0x80, 0x80, 0x80, 0x01}},
 		{"overflow 10th byte negative", []byte{0x80, 0x80, 0x80, 0x80, 0x80, 0x80, 0x80, 0x80, 0x80, 0x40}},
@@ -505,6 +582,38 @@ func TestCursorNavigation(t *testing.T) {
 	if got := c.Pos(); got != 10 {
 		t.Fatalf("Pos() after failed Skip = %d, want 10", got)
 	}
+}
+
+func TestCursorAlign(t *testing.T) {
+	c := NewCursor([]byte{1, 2, 3, 4, 5, 6, 7, 8})
+
+	if got := c.Align(4); got != 0 {
+		t.Fatalf("Align(4) at offset 0 = %d, want 0", got)
+	}
+	c.Skip(1)
+	if got := c.Align(4); got != 3 {
+		t.Fatalf("Align(4) at offset 1 = %d, want 3", got)
+	}
+	if got := c.Pos(); got != 4 {
+		t.Fatalf("Pos() = %d, want 4", got)
+	}
+	if got := c.Align(1); got != 0 {
+		t.Fatalf("Align(1) = %d, want 0", got)
+	}
+	if got := c.Align(8); got != 4 {
+		t.Fatalf("Align(8) at offset 4 = %d, want 4", got)
+	}
+	if got := c.BytesLeft(); got != 0 {
+		t.Fatalf("BytesLeft() = %d, want 0", got)
+	}
+
+	mustPanic(t, "bt: need 3 bytes at offset 1, have 1", func() {
+		c := NewCursor([]byte{1, 2})
+		c.Skip(1)
+		c.Align(4)
+	})
+	mustPanic(t, "bt: bad align size 0", func() { NewCursor(nil).Align(0) })
+	mustPanic(t, "bt: bad align size -4", func() { NewCursor(nil).Align(-4) })
 }
 
 func TestCursorNegativeSizes(t *testing.T) {

@@ -162,7 +162,7 @@ func TestWriterCStrNulPanics(t *testing.T) {
 }
 
 func TestWriterVarintRoundTrip(t *testing.T) {
-	unsigned := []uint64{0, 1, 0x7F, 0x80, 0x81, 300, 0x3FFF, 0x4000, 1 << 32, math.MaxUint64}
+	unsigned := []uint64{0, 1, 0x7F, 0x80, 0x81, 300, 0x3FFF, 0x4000, 1 << 21, 1 << 32, math.MaxUint64}
 	for _, v := range unsigned {
 		w := NewWriter()
 		w.ULEB128(v)
@@ -174,7 +174,7 @@ func TestWriterVarintRoundTrip(t *testing.T) {
 		}
 	}
 
-	signed := []int64{0, 1, -1, 63, 64, -64, -65, 127, -128, 300, -300, 1 << 40, -(1 << 40), math.MaxInt64, math.MinInt64}
+	signed := []int64{0, 1, -1, 63, 64, -64, -65, 127, -128, 300, -300, 8192, -8192, 1 << 20, -(1 << 27), 1 << 40, -(1 << 40), math.MaxInt64, math.MinInt64}
 	for _, v := range signed {
 		w := NewWriter()
 		w.SLEB128(v)
@@ -315,6 +315,28 @@ func TestWriterReserve(t *testing.T) {
 		t.Fatalf("Reserve(300) = %d, len %d", pos, w.Len())
 	}
 	mustPanic(t, "bt: negative size -1", func() { w.Reserve(-1) })
+}
+
+func TestWriterAlign(t *testing.T) {
+	w := NewWriter()
+	if got := w.Align(4); got != 0 || w.Len() != 0 {
+		t.Fatalf("Align(4) at length 0 = %d, len %d", got, w.Len())
+	}
+	w.U8(0xAA)
+	if got := w.Align(4); got != 3 {
+		t.Fatalf("Align(4) at length 1 = %d, want 3", got)
+	}
+	if want := []byte{0xAA, 0, 0, 0}; !bytes.Equal(w.Bytes(), want) {
+		t.Fatalf("bytes = % x, want % x", w.Bytes(), want)
+	}
+	if got := w.Align(1); got != 0 {
+		t.Fatalf("Align(1) = %d, want 0", got)
+	}
+	if got := w.Align(8); got != 4 {
+		t.Fatalf("Align(8) at length 4 = %d, want 4", got)
+	}
+	mustPanic(t, "bt: bad align size 0", func() { w.Align(0) })
+	mustPanic(t, "bt: bad align size -1", func() { w.Align(-1) })
 }
 
 func TestWriterPatch(t *testing.T) {

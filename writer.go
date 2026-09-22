@@ -329,6 +329,23 @@ func (w *Writer) Reserve(n int) int {
 		panic(fmt.Sprintf("bt: negative size %d", n))
 	}
 	pos := len(w.b)
+	w.appendZeros(n)
+	return pos
+}
+
+// Align appends zero bytes until the length is a multiple of size and returns
+// the number of appended bytes. The length is aligned relative to the start of
+// the buffer.
+func (w *Writer) Align(size int) int {
+	if size <= 0 {
+		panic(fmt.Sprintf("bt: bad align size %d", size))
+	}
+	pad := (size - len(w.b)%size) % size
+	w.appendZeros(pad)
+	return pad
+}
+
+func (w *Writer) appendZeros(n int) {
 	for n > 0 {
 		chunk := n
 		if chunk > len(zeroPad) {
@@ -337,7 +354,6 @@ func (w *Writer) Reserve(n int) int {
 		w.b = append(w.b, zeroPad[:chunk]...)
 		n -= chunk
 	}
-	return pos
 }
 
 func (w *Writer) patchCheck(pos, n int) {

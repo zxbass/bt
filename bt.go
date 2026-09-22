@@ -99,11 +99,17 @@ func (c *Cursor) need(n int) {
 
 //go:noinline
 func (c *Cursor) needPanic(n int) {
+	panic(c.needMessage(n))
+}
+
+// needMessage formats the read-bounds panic, so callers whose fallthrough path
+// ends in a panic can keep it as a terminating statement.
+func (c *Cursor) needMessage(n int) string {
 	if n < 0 {
-		panic(fmt.Sprintf("bt: negative size %d", n))
+		return fmt.Sprintf("bt: negative size %d", n)
 	}
-	panic(fmt.Sprintf("bt: need %d bytes at offset %d, have %d",
-		n, c.off, len(c.b)-c.off))
+	return fmt.Sprintf("bt: need %d bytes at offset %d, have %d",
+		n, c.off, len(c.b)-c.off)
 }
 
 // CanRead reports whether n bytes can be read from the current offset.
@@ -130,6 +136,19 @@ func (c *Cursor) Pos() int {
 func (c *Cursor) Skip(n int) {
 	c.need(n)
 	c.off += n
+}
+
+// Align advances the cursor to the next multiple of size and returns the number
+// of skipped padding bytes. The offset is aligned relative to the start of the
+// buffer.
+func (c *Cursor) Align(size int) int {
+	if size <= 0 {
+		panic(fmt.Sprintf("bt: bad align size %d", size))
+	}
+	pad := (size - c.off%size) % size
+	c.need(pad)
+	c.off += pad
+	return pad
 }
 
 // Bytes returns the next n bytes and advances the cursor. The returned slice
@@ -374,8 +393,6 @@ func (c *Cursor) F64BE() float64 {
 // ULEB128 reads an unsigned LEB128 varint. Malformed input (truncated or
 // overflowing uint64) panics and leaves the cursor offset unchanged.
 func (c *Cursor) ULEB128() (result uint64) {
-	start := c.off
-
 	if c.off < len(c.b) {
 		b0 := c.b[c.off]
 		if b0 < 0x80 {
@@ -383,38 +400,92 @@ func (c *Cursor) ULEB128() (result uint64) {
 			return uint64(b0)
 		}
 		if c.off+1 < len(c.b) {
-			if b1 := c.b[c.off+1]; b1 < 0x80 {
+			b1 := c.b[c.off+1]
+			if b1 < 0x80 {
 				c.off += 2
 				return uint64(b0&0x7F) | uint64(b1)<<7
 			}
+			return c.uleb128Rest()
 		}
 	}
 
-	for shift := uint(0); ; shift += 7 {
-		if c.off == len(c.b) {
-			c.off = start
-			c.needPanic(1)
-		}
+	panic(c.needMessage(1))
+}
 
-		b := c.b[c.off]
-		c.off++
-
-		if shift == 63 && b > 1 {
-			c.off = start
-			panic("bt: ULEB128 overflow")
-		}
-		result |= uint64(b&0x7F) << shift
-		if b&0x80 == 0 {
-			return result
-		}
+// uleb128Rest decodes a three- to ten-byte varint whose first two bytes carry
+// continuation bits. It moves the offset only on success.
+func (c *Cursor) uleb128Rest() uint64 {
+	b := c.b[c.off:]
+	if len(b) < 3 {
+		panic(c.needMessage(1))
 	}
+	v := uint64(b[0]&0x7F) | uint64(b[1]&0x7F)<<7
+	if b[2] < 0x80 {
+		c.off += 3
+		return v | uint64(b[2])<<14
+	}
+	v |= uint64(b[2]&0x7F) << 14
+	if len(b) < 4 {
+		panic(c.needMessage(1))
+	}
+	if b[3] < 0x80 {
+		c.off += 4
+		return v | uint64(b[3])<<21
+	}
+	v |= uint64(b[3]&0x7F) << 21
+	if len(b) < 5 {
+		panic(c.needMessage(1))
+	}
+	if b[4] < 0x80 {
+		c.off += 5
+		return v | uint64(b[4])<<28
+	}
+	v |= uint64(b[4]&0x7F) << 28
+	if len(b) < 6 {
+		panic(c.needMessage(1))
+	}
+	if b[5] < 0x80 {
+		c.off += 6
+		return v | uint64(b[5])<<35
+	}
+	v |= uint64(b[5]&0x7F) << 35
+	if len(b) < 7 {
+		panic(c.needMessage(1))
+	}
+	if b[6] < 0x80 {
+		c.off += 7
+		return v | uint64(b[6])<<42
+	}
+	v |= uint64(b[6]&0x7F) << 42
+	if len(b) < 8 {
+		panic(c.needMessage(1))
+	}
+	if b[7] < 0x80 {
+		c.off += 8
+		return v | uint64(b[7])<<49
+	}
+	v |= uint64(b[7]&0x7F) << 49
+	if len(b) < 9 {
+		panic(c.needMessage(1))
+	}
+	if b[8] < 0x80 {
+		c.off += 9
+		return v | uint64(b[8])<<56
+	}
+	v |= uint64(b[8]&0x7F) << 56
+	if len(b) < 10 {
+		panic(c.needMessage(1))
+	}
+	if b[9] > 1 {
+		panic("bt: ULEB128 overflow")
+	}
+	c.off += 10
+	return v | uint64(b[9])<<63
 }
 
 // SLEB128 reads a signed LEB128 varint (DWARF-style, sign-extended). Like
 // ULEB128, malformed input panics and leaves the cursor offset unchanged.
 func (c *Cursor) SLEB128() int64 {
-	start := c.off
-
 	if c.off < len(c.b) {
 		b0 := c.b[c.off]
 		if b0 < 0x80 {
@@ -426,7 +497,8 @@ func (c *Cursor) SLEB128() int64 {
 			return v
 		}
 		if c.off+1 < len(c.b) {
-			if b1 := c.b[c.off+1]; b1 < 0x80 {
+			b1 := c.b[c.off+1]
+			if b1 < 0x80 {
 				c.off += 2
 				v := int64(b0&0x7F) | int64(b1&0x7F)<<7
 				if b1&0x40 != 0 {
@@ -434,34 +506,103 @@ func (c *Cursor) SLEB128() int64 {
 				}
 				return v
 			}
+			return c.sleb128Rest()
 		}
 	}
 
-	var result int64
+	panic(c.needMessage(1))
+}
 
-	for i := 0; ; i++ {
-		if c.off == len(c.b) {
-			c.off = start
-			c.needPanic(1)
-		}
-
-		b := c.b[c.off]
-		c.off++
-
-		if i == 9 && b != 0x00 && b != 0x7F {
-			c.off = start
-			panic("bt: SLEB128 overflow")
-		}
-
-		result |= int64(b&0x7F) << (7 * i)
-
-		if b&0x80 == 0 {
-			if shift := uint(7 * (i + 1)); shift < 64 && b&0x40 != 0 {
-				result |= -1 << shift
-			}
-			return result
-		}
+// sleb128Rest decodes a three- to ten-byte varint whose first two bytes carry
+// continuation bits. It moves the offset only on success.
+func (c *Cursor) sleb128Rest() int64 {
+	b := c.b[c.off:]
+	if len(b) < 3 {
+		panic(c.needMessage(1))
 	}
+	v := int64(b[0]&0x7F) | int64(b[1]&0x7F)<<7
+	if b[2] < 0x80 {
+		if b[2]&0x40 != 0 {
+			v -= 1 << 21
+		}
+		c.off += 3
+		return v | int64(b[2])<<14
+	}
+	v |= int64(b[2]&0x7F) << 14
+	if len(b) < 4 {
+		panic(c.needMessage(1))
+	}
+	if b[3] < 0x80 {
+		if b[3]&0x40 != 0 {
+			v -= 1 << 28
+		}
+		c.off += 4
+		return v | int64(b[3])<<21
+	}
+	v |= int64(b[3]&0x7F) << 21
+	if len(b) < 5 {
+		panic(c.needMessage(1))
+	}
+	if b[4] < 0x80 {
+		if b[4]&0x40 != 0 {
+			v -= 1 << 35
+		}
+		c.off += 5
+		return v | int64(b[4])<<28
+	}
+	v |= int64(b[4]&0x7F) << 28
+	if len(b) < 6 {
+		panic(c.needMessage(1))
+	}
+	if b[5] < 0x80 {
+		if b[5]&0x40 != 0 {
+			v -= 1 << 42
+		}
+		c.off += 6
+		return v | int64(b[5])<<35
+	}
+	v |= int64(b[5]&0x7F) << 35
+	if len(b) < 7 {
+		panic(c.needMessage(1))
+	}
+	if b[6] < 0x80 {
+		if b[6]&0x40 != 0 {
+			v -= 1 << 49
+		}
+		c.off += 7
+		return v | int64(b[6])<<42
+	}
+	v |= int64(b[6]&0x7F) << 42
+	if len(b) < 8 {
+		panic(c.needMessage(1))
+	}
+	if b[7] < 0x80 {
+		if b[7]&0x40 != 0 {
+			v -= 1 << 56
+		}
+		c.off += 8
+		return v | int64(b[7])<<49
+	}
+	v |= int64(b[7]&0x7F) << 49
+	if len(b) < 9 {
+		panic(c.needMessage(1))
+	}
+	if b[8] < 0x80 {
+		if b[8]&0x40 != 0 {
+			v |= -1 << 63
+		}
+		c.off += 9
+		return v | int64(b[8])<<56
+	}
+	v |= int64(b[8]&0x7F) << 56
+	if len(b) < 10 {
+		panic(c.needMessage(1))
+	}
+	if b[9] != 0x00 && b[9] != 0x7F {
+		panic("bt: SLEB128 overflow")
+	}
+	c.off += 10
+	return v | int64(b[9]&0x7F)<<63
 }
 
 // StrOrRest reads exactly sz bytes and returns the bytes up to the first null

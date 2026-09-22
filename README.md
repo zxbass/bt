@@ -44,7 +44,7 @@ Requires Go 1.23+ (iterators).
 
 | Group | Methods |
 | --- | --- |
-| Navigation | `Pos`, `BytesLeft`, `CanRead`, `Ensure`, `Skip`, `Bytes`, `Peek`, `Sub` |
+| Navigation | `Pos`, `BytesLeft`, `CanRead`, `Ensure`, `Skip`, `Align`, `Bytes`, `Peek`, `Sub` |
 | Unsigned | `U8`, `U16`/`U32`/`U64` (`order` + `LE`/`BE`), `U24LE`, `U24BE` |
 | Signed | `I8`, `I16`/`I32`/`I64` (`order` + `LE`/`BE`), `I24LE`, `I24BE` |
 | Floats | `F32`/`F64` (`order` + `LE`/`BE`) |
@@ -55,8 +55,9 @@ Requires Go 1.23+ (iterators).
 | `io` interop | `NewCursorFromReader`, `Read`, `ReadByte` |
 | Errors | `ErrNoNul` (used by `CStr`), `ErrBufferLimit` (used by `Stream`) |
 | Writing | `Writer`: same numeric/varint methods as `Cursor`, plus `RawStr`, `CStr` |
-| Writer state | `NewWriter`, `Len`, `Bytes`, `Reset`, `Grow`, `Truncate`, `Write`, `WriteByte`, `WriteString`, `WriteTo` |
+| Writer state | `NewWriter`, `Len`, `Bytes`, `Reset`, `Grow`, `Truncate`, `Align`, `Write`, `WriteByte`, `WriteString`, `WriteTo` |
 | Sections | `Reserve`, `PatchU8`, `PatchU16LE`/`PatchU16BE`, `PatchU32LE`/`PatchU32BE`, `PatchU64LE`/`PatchU64BE`, `LenU8`, `LenU16LE`/`LenU16BE`, `LenU32LE`/`LenU32BE` |
+| Append helpers | `AppendU24LE`, `AppendU24BE`, `AppendULEB128`, `AppendSLEB128`, `ULEB128Size`, `SLEB128Size` |
 | Stream writing | `StreamWriter`: the same write methods, `Flush`, `Err`, `Buffered`, `Reset`, `Grow`, `WithFlushThreshold` |
 
 `Sub(n)` returns an independent cursor over the next `n` bytes and advances the
@@ -127,6 +128,12 @@ and panics on embedded NULs so that a round trip cannot silently lose data.
 `Writer` also implements `io.Writer`, `io.ByteWriter`, `io.StringWriter` and
 `io.WriterTo`; `WriteTo` drains the buffer like `bytes.Buffer` does.
 
+Without a `Writer`, `AppendU24LE`/`AppendU24BE`/`AppendULEB128`/`AppendSLEB128`
+append to an existing slice, and `ULEB128Size`/`SLEB128Size` report the encoded
+length so you can grow the buffer exactly. For padded formats, `Cursor.Align`
+skips and `Writer.Align` appends padding up to a size multiple, both relative
+to the start of the buffer.
+
 ## Streaming
 
 `Stream` adapts an `io.Reader`: `Fill` guarantees a window of bytes, and the
@@ -195,7 +202,8 @@ regular `Cursor`. `Cursor` also implements `io.Reader` and `io.ByteReader`
 - A failed read leaves the cursor offset unchanged, including `ULEB128`/`SLEB128`.
 - A value that does not fit its encoding panics, for example
   `bt: value 0x1000000 does not fit in 24 bits`. `CStr` panics on embedded NULs,
-  patches outside the buffer panic, and a section longer than its prefix panics.
+  patches outside the buffer panic, a non-positive alignment size panics, and a
+  section longer than its prefix panics.
 - `Cursor` aliases the buffer: it does not copy, the buffer must outlive the
   cursor, and `Bytes`/`Peek`/`Sub` results alias it too. `Bytes`/`Peek` cap the
   result at `n`, so it cannot be resliced past the requested window.
@@ -322,8 +330,8 @@ machine-dependent; the comparison columns are from the same run.
 | `U16LE` | 4.2 ns, 0 allocs | 3.0 ns direct, 35 ns + 1 alloc via `binary.Read` |
 | `U32LE` | 4.0 ns, 0 allocs | 3.0 ns direct, 56 ns + 1 alloc |
 | `U64LE` | 4.1 ns, 0 allocs | 3.0 ns direct, 60 ns + 1 alloc |
-| `ULEB128` (1/2/10 bytes) | 2.7 / 3.2 / 18.7 ns | — |
-| `SLEB128` (1/2 bytes) | 2.9 / 3.3 ns | — |
+| `ULEB128` (1/2/10 bytes) | 2.2 / 2.4 / 6.4 ns | — |
+| `SLEB128` (1/2/10 bytes) | 2.3 / 2.8 / 6.7 ns | — |
 | `RawStr(4)` / `StrUnsafe(4)` | 30 ns / 13 ns, 1 / 0 allocs | — |
 | `ParseRecords` (mixed fields + name strings) | 461 MB/s, ~38 ns/record | — |
 | `Records(16)` iteration (64 KiB) | ~6 GB/s, 0 allocs | — |
@@ -336,7 +344,8 @@ The panic-on-out-of-bounds contract costs about 1 ns per numeric read versus a
 bare `binary.LittleEndian` call. The dynamic `U16(order)`/`U32(order)`/... forms
 cost ~1.5 ns more than the `LE`/`BE` wrappers because of interface dispatch.
 `BenchmarkUnsafeCast` (amd64/arm64 only) is the theoretical floor: a raw
-native-endian load with no bounds check.
+native-endian load with no bounds check. The varint rows were re-measured on the
+machine in the Writing table after the unrolled fast paths.
 
 ### Writing
 
@@ -350,8 +359,9 @@ numbers come from a different machine and run than the reader table above.
 | `U32BE` | 2.2 ns, 0 allocs | 0.7 ns `binary.BigEndian.AppendUint32` |
 | `U64LE` | 2.5 ns, 0 allocs | 0.8 ns `binary.LittleEndian.AppendUint64` |
 | `U24LE` | 3.4 ns, 0 allocs | — |
-| `ULEB128` | 4.7 ns, 0 allocs | 3.0 ns `binary.AppendUvarint` |
-| `SLEB128` | 4.7 ns, 0 allocs | — |
+| `Writer.ULEB128` / `Writer.SLEB128` | 4.7 / 4.7 ns, 0 allocs | — |
+| `AppendULEB128` | 3.7 ns, 0 allocs | 3.0 ns `binary.AppendUvarint` |
+| `AppendU24LE` | 2.4 ns, 0 allocs | — |
 | `RawStr(8)` / `CStr(8)` | 2.1 / 7.6 ns, 0 allocs | — |
 | `LenU8` section with an 8-byte payload | 9.7 ns, 0 allocs | — |
 | 1024 mixed records (`WriteRecords`) | 3.8 GB/s, ~5.7 ns/record, 0 allocs | — |

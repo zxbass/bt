@@ -128,6 +128,34 @@ func BenchmarkStdlibAppendUvarint(b *testing.B) {
 	sinkBytes = buf
 }
 
+func BenchmarkAppendULEB128(b *testing.B) {
+	buf := make([]byte, 0, 1<<20)
+	b.SetBytes(2)
+	b.ReportAllocs()
+
+	for i := 0; i < b.N; i++ {
+		if len(buf) > (1<<20)-64 {
+			buf = buf[:0]
+		}
+		buf = AppendULEB128(buf, uint64(len(buf)))
+	}
+	sinkBytes = buf
+}
+
+func BenchmarkAppendU24LE(b *testing.B) {
+	buf := make([]byte, 0, 1<<20)
+	b.SetBytes(3)
+	b.ReportAllocs()
+
+	for i := 0; i < b.N; i++ {
+		if len(buf) > (1<<20)-64 {
+			buf = buf[:0]
+		}
+		buf = AppendU24LE(buf, uint32(len(buf))&0xFFFFFF)
+	}
+	sinkBytes = buf
+}
+
 func BenchmarkWriteRecords(b *testing.B) {
 	const (
 		records = 1024

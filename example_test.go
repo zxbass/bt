@@ -175,6 +175,19 @@ func ExampleCursor_StrUnsafe() {
 	// zero-copy 5
 }
 
+func ExampleCursor_Align() {
+	data := []byte{0x01, 0, 0, 0, 0x02, 0, 0}
+	c := bt.NewCursor(data)
+
+	id := c.U8()
+	pad := c.Align(4)
+	fmt.Println(id, pad)
+	fmt.Println(c.U8())
+	// Output:
+	// 1 3
+	// 2
+}
+
 func ExampleStream() {
 	r := bytes.NewReader([]byte{
 		3, 'a', 'b', 'c',

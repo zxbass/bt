@@ -158,6 +158,36 @@ func BenchmarkULEB128(b *testing.B) {
 		}
 	})
 
+	b.Run("3byte", func(b *testing.B) {
+		unit := []byte{0x80, 0x80, 0x01}
+		buf := bytes.Repeat(unit, (64<<10)/len(unit))
+		b.SetBytes(int64(len(unit)))
+		b.ReportAllocs()
+
+		c := NewCursor(buf)
+		for i := 0; i < b.N; i++ {
+			if c.BytesLeft() < len(unit) {
+				c = NewCursor(buf)
+			}
+			sinkU64 = c.ULEB128()
+		}
+	})
+
+	b.Run("5byte", func(b *testing.B) {
+		unit := []byte{0x80, 0x80, 0x80, 0x80, 0x01}
+		buf := bytes.Repeat(unit, (64<<10)/len(unit))
+		b.SetBytes(int64(len(unit)))
+		b.ReportAllocs()
+
+		c := NewCursor(buf)
+		for i := 0; i < b.N; i++ {
+			if c.BytesLeft() < len(unit) {
+				c = NewCursor(buf)
+			}
+			sinkU64 = c.ULEB128()
+		}
+	})
+
 	b.Run("10byte", func(b *testing.B) {
 		unit := []byte{0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0x01}
 		buf := bytes.Repeat(unit, (64<<10)/len(unit))
@@ -196,6 +226,51 @@ func BenchmarkSLEB128(b *testing.B) {
 		c := NewCursor(buf)
 		for i := 0; i < b.N; i++ {
 			if c.BytesLeft() < 2 {
+				c = NewCursor(buf)
+			}
+			sinkU64 = uint64(c.SLEB128())
+		}
+	})
+
+	b.Run("3byte", func(b *testing.B) {
+		unit := []byte{0x80, 0xC0, 0x00}
+		buf := bytes.Repeat(unit, (64<<10)/len(unit))
+		b.SetBytes(int64(len(unit)))
+		b.ReportAllocs()
+
+		c := NewCursor(buf)
+		for i := 0; i < b.N; i++ {
+			if c.BytesLeft() < len(unit) {
+				c = NewCursor(buf)
+			}
+			sinkU64 = uint64(c.SLEB128())
+		}
+	})
+
+	b.Run("5byte", func(b *testing.B) {
+		unit := []byte{0xFF, 0xFF, 0xFF, 0xFF, 0x07}
+		buf := bytes.Repeat(unit, (64<<10)/len(unit))
+		b.SetBytes(int64(len(unit)))
+		b.ReportAllocs()
+
+		c := NewCursor(buf)
+		for i := 0; i < b.N; i++ {
+			if c.BytesLeft() < len(unit) {
+				c = NewCursor(buf)
+			}
+			sinkU64 = uint64(c.SLEB128())
+		}
+	})
+
+	b.Run("10byte", func(b *testing.B) {
+		unit := []byte{0x80, 0x80, 0x80, 0x80, 0x80, 0x80, 0x80, 0x80, 0x80, 0x7F}
+		buf := bytes.Repeat(unit, (64<<10)/len(unit))
+		b.SetBytes(int64(len(unit)))
+		b.ReportAllocs()
+
+		c := NewCursor(buf)
+		for i := 0; i < b.N; i++ {
+			if c.BytesLeft() < len(unit) {
 				c = NewCursor(buf)
 			}
 			sinkU64 = uint64(c.SLEB128())
