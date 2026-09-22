@@ -32,6 +32,9 @@ w.U8(flags)
 w.F32LE(price)
 ```
 
+A book-length guide to the contracts, internals and recipes lives in
+[`docs/`](docs/README.md).
+
 ## Install
 
 ```
