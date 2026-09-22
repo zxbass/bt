@@ -57,7 +57,7 @@ Requires Go 1.23+ (iterators).
 | Writing | `Writer`: same numeric/varint methods as `Cursor`, plus `RawStr`, `CStr` |
 | Writer state | `NewWriter`, `Len`, `Bytes`, `Reset`, `Grow`, `Truncate`, `Write`, `WriteByte`, `WriteString`, `WriteTo` |
 | Sections | `Reserve`, `PatchU8`, `PatchU16LE`/`PatchU16BE`, `PatchU32LE`/`PatchU32BE`, `PatchU64LE`/`PatchU64BE`, `LenU8`, `LenU16LE`/`LenU16BE`, `LenU32LE`/`LenU32BE` |
-| Stream writing | `StreamWriter`: the same write methods, `Flush`, `Err`, `Buffered`, `Reset`, `WithFlushThreshold` |
+| Stream writing | `StreamWriter`: the same write methods, `Flush`, `Err`, `Buffered`, `Reset`, `Grow`, `WithFlushThreshold` |
 
 `Sub(n)` returns an independent cursor over the next `n` bytes and advances the
 parent. Use it to parse a length-delimited record without letting its reads
@@ -208,6 +208,110 @@ regular `Cursor`. `Cursor` also implements `io.Reader` and `io.ByteReader`
   and a `Patch` only releases a reserve, it does not flush.
 - No type is safe for concurrent use.
 
+## Usage scenarios
+
+Parse a length-delimited record: validate the header once, then work on a
+sub-cursor so a bad record cannot move the parent offset.
+
+```go
+if !c.CanRead(3) {
+	return io.ErrUnexpectedEOF
+}
+rec := c.Sub(int(c.U16LE()))
+kind := rec.U8()
+name := rec.StrOrRest(rec.BytesLeft())
+```
+
+Iterate fixed-size frames without allocations; `IndexedRecords` adds the frame
+index, `Chunks` yields zero-copy slices for hashing or copying.
+
+```go
+for i, rec := range c.IndexedRecords(16) {
+	_ = i
+	_ = rec.U32LE()
+}
+
+for chunk := range c.Chunks(1 << 20) {
+	h.Write(chunk)
+}
+```
+
+Parse a stream incrementally: `Fill` guarantees a window, `Cursor` parses inside
+it, `Advance` commits what was consumed. `Fill` reports truncation as
+`io.ErrUnexpectedEOF`, and `WithMaxBuffer` caps memory.
+
+```go
+st := bt.NewStream(r)
+for {
+	if err := st.Fill(1); err != nil {
+		if errors.Is(err, io.ErrUnexpectedEOF) && st.Buffered() == 0 {
+			return nil
+		}
+		return err
+	}
+	size := int(st.Cursor().U8())
+	st.Advance(1)
+
+	if err := st.Fill(size); err != nil {
+		return err
+	}
+	body := st.Cursor().RawStr(size)
+	st.Advance(size)
+	handle(body)
+}
+```
+
+Build a wire format with length-prefixed sections: `LenU16LE` runs a closure and
+patches the prefix, while `Reserve`/`Patch` cover fields written after the body,
+such as a trailing checksum.
+
+```go
+w := bt.NewWriter()
+w.Grow(1 << 10)
+
+w.LenU16LE(func(w *bt.Writer) {
+	w.CStr(name)
+	w.U32LE(id)
+})
+
+off := w.Reserve(4)
+w.RawStr(body)
+w.PatchU32LE(off, crc32.ChecksumIEEE(w.Bytes()[off+4:]))
+```
+
+Write large payloads to an `io.Writer` without checking errors on every field:
+failures are sticky and surface once through `Flush`, and
+`WithFlushThreshold(n)` batches the writes.
+
+```go
+sw := bt.NewStreamWriter(out, bt.WithFlushThreshold(1<<20))
+for _, rec := range records {
+	sw.U16LE(rec.id)
+	sw.RawStr(rec.name)
+}
+if err := sw.Flush(); err != nil {
+	return err
+}
+```
+
+Round-trip tests: every `Writer` method has a matching `Cursor` reader, so a
+table or fuzz test can write a value, read it back and treat panics as
+failures.
+
+```go
+w := bt.NewWriter()
+w.U24LE(v)
+if got := bt.NewCursor(w.Bytes()).U24LE(); got != v {
+	t.Fatalf("round trip %d = %d", v, got)
+}
+```
+
+The runnable versions live in the package examples: `ExampleCursor_Sub`,
+`ExampleCursor_IndexedRecords`, `ExampleCursor_Chunks`, `ExampleStream`,
+`ExampleWithMaxBuffer`, `ExampleWriter_Reserve`, `ExampleWriter_LenU16LE`,
+`ExampleStreamWriter`, `ExampleStreamWriter_LenU16BE` and
+`ExampleWriter_WriteTo`.
+
 ## Performance
 
 `go test -bench=. -benchmem`, amd64 (i3-10100, Go 1.26). Absolute numbers are
@@ -236,11 +340,13 @@ native-endian load with no bounds check.
 
 ### Writing
 
-`go test -run=^$ -bench=. -benchmem`, amd64 (Ryzen 5 5600, Go 1.27):
+`go test -run=^$ -bench=. -benchmem`, amd64 (Ryzen 5 5600, Go 1.27). These
+numbers come from a different machine and run than the reader table above.
 
 | operation | bt | stdlib |
 | --- | --- | --- |
 | `U16LE` | 2.4 ns, 0 allocs | 0.7 ns `binary.LittleEndian.AppendUint16` |
+| `U16(order)` / `U32(order)` / `U64(order)` | 2.5 / 2.7 / 2.5 ns, 0 allocs | — |
 | `U32BE` | 2.2 ns, 0 allocs | 0.7 ns `binary.BigEndian.AppendUint32` |
 | `U64LE` | 2.5 ns, 0 allocs | 0.8 ns `binary.LittleEndian.AppendUint64` |
 | `U24LE` | 3.4 ns, 0 allocs | — |
@@ -253,9 +359,12 @@ native-endian load with no bounds check.
 
 The writer methods cost 1.5-2 ns more than a bare `AppendUint*` call because
 every write updates the writer slice header through a pointer; the value checks
-are branches, not allocations. `StreamWriter` pays per-field method overhead on
-top, so batching raw records through `bufio.Writer` is faster; it buys the
-sticky-error, no-`if err != nil` API and the section helpers.
+are branches, not allocations. The generic `U16(order)`/`U32(order)`/`U64(order)`
+forms cost little extra when the byte order is a compile-time constant, because
+the compiler devirtualizes the call. `StreamWriter` pays per-field method
+overhead on top, so batching raw records through `bufio.Writer` is faster; it
+buys the sticky-error, no-`if err != nil` API and the section helpers.
+`StreamWriter.Grow` removes the few bytes of buffer-growth allocation.
 
 ## Debug playground
 
@@ -276,8 +385,11 @@ The `-seq` flag accepts `u8`, `u16le`/`u16be`, `u32le`/`u32be`, `u64le`/`u64be`,
 ```
 go test -race -cover ./...
 go test -run=^$ -fuzz=FuzzULEB128RoundTrip -fuzztime=30s .
+go test -run=^$ -fuzz=FuzzWriterScalarsRoundTrip -fuzztime=30s .
 go test -run=^$ -bench=. -benchmem ./...
 ```
+
+The full fuzz matrix lives in `.github/workflows/ci.yml`.
 
 Compare benchmark changes with `benchstat`:
 

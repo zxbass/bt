@@ -1,6 +1,19 @@
 // Package bt provides fast helpers for reading and writing trusted binary
 // data.
 //
+// # Reading
+//
+// Cursor reads scalars, strings and varints from a byte slice. Records,
+// IndexedRecords and Chunks iterate fixed-size frames, and Sub carves out
+// length-delimited records. Stream adapts an io.Reader for incremental
+// parsing, and NewCursorFromReader buffers a whole reader.
+//
+// # Writing
+//
+// Writer appends the same encodings to a byte slice, and StreamWriter buffers
+// them into an io.Writer with sticky errors. Reserve with Patch, or the
+// LenU8/LenU16/LenU32 helpers, build length-prefixed sections.
+//
 // # Contract
 //
 // Reading past the end of the buffer panics. The panic value is a string:

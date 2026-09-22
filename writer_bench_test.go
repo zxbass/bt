@@ -26,12 +26,24 @@ func BenchmarkWriterU16LE(b *testing.B) {
 	benchWriter(b, 2, func(w *Writer) { w.U16LE(uint16(w.Len())) })
 }
 
+func BenchmarkWriterU16Order(b *testing.B) {
+	benchWriter(b, 2, func(w *Writer) { w.U16(binary.BigEndian, uint16(w.Len())) })
+}
+
 func BenchmarkWriterU32BE(b *testing.B) {
 	benchWriter(b, 4, func(w *Writer) { w.U32BE(uint32(w.Len())) })
 }
 
+func BenchmarkWriterU32Order(b *testing.B) {
+	benchWriter(b, 4, func(w *Writer) { w.U32(binary.LittleEndian, uint32(w.Len())) })
+}
+
 func BenchmarkWriterU64LE(b *testing.B) {
 	benchWriter(b, 8, func(w *Writer) { w.U64LE(uint64(w.Len())) })
+}
+
+func BenchmarkWriterU64Order(b *testing.B) {
+	benchWriter(b, 8, func(w *Writer) { w.U64(binary.BigEndian, uint64(w.Len())) })
 }
 
 func BenchmarkWriterU24LE(b *testing.B) {
@@ -155,7 +167,7 @@ func BenchmarkWriteFixedRecords(b *testing.B) {
 		for i := 0; i < b.N; i++ {
 			w.Reset()
 			for j := 0; j < records; j++ {
-				writeFixedRecord(w)
+				writeFixedRecord(w, j)
 			}
 		}
 		sinkBytes = w.Bytes()
@@ -163,6 +175,23 @@ func BenchmarkWriteFixedRecords(b *testing.B) {
 
 	b.Run("streamwriter", func(b *testing.B) {
 		sw := NewStreamWriter(io.Discard)
+		for i := 0; i < b.N; i++ {
+			for j := 0; j < records; j++ {
+				sw.U8(byte(j))
+				sw.U16LE(uint16(j))
+				sw.U32LE(uint32(j))
+				sw.U64LE(uint64(j))
+				sw.U8(0)
+			}
+			if err := sw.Flush(); err != nil {
+				b.Fatal(err)
+			}
+		}
+	})
+
+	b.Run("streamwriter-grow", func(b *testing.B) {
+		sw := NewStreamWriter(io.Discard)
+		sw.Grow(recSize * records)
 		for i := 0; i < b.N; i++ {
 			for j := 0; j < records; j++ {
 				sw.U8(byte(j))
@@ -198,10 +227,10 @@ func BenchmarkWriteFixedRecords(b *testing.B) {
 	})
 }
 
-func writeFixedRecord(w *Writer) {
-	w.U8(0)
-	w.U16LE(0)
-	w.U32LE(0)
-	w.U64LE(0)
+func writeFixedRecord(w *Writer, j int) {
+	w.U8(byte(j))
+	w.U16LE(uint16(j))
+	w.U32LE(uint32(j))
+	w.U64LE(uint64(j))
 	w.U8(0)
 }

@@ -22,6 +22,9 @@ func WithFlushThreshold(n int) StreamWriterOption {
 // invalid values panic like Writer. Write, WriteByte and WriteString report
 // the sticky error, including a flush failure caused by the call itself.
 //
+// The typed methods mirror Writer one-to-one on purpose: small per-field
+// bodies keep the sticky-error API while staying small enough to inline.
+//
 // After the first write error every write method becomes a no-op and Flush
 // returns that error until Reset is called. The underlying writer is never
 // closed. StreamWriter is not safe for concurrent use.
@@ -64,6 +67,15 @@ func (sw *StreamWriter) Reset() {
 	sw.err = nil
 	sw.reserved = sw.reserved[:0]
 	sw.buf.Reset()
+}
+
+// Grow ensures room for at least n more buffered bytes, so subsequent writes
+// do not reallocate. It is a no-op after a sticky error.
+func (sw *StreamWriter) Grow(n int) {
+	if sw.err != nil {
+		return
+	}
+	sw.buf.Grow(n)
 }
 
 // Flush writes buffered bytes to the underlying writer. Bytes that were already

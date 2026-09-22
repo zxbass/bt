@@ -285,6 +285,7 @@ func TestStreamWriterStickyError(t *testing.T) {
 		{"PatchU32BE", func() { sw.PatchU32BE(0, 1) }},
 		{"PatchU64LE", func() { sw.PatchU64LE(0, 1) }},
 		{"PatchU64BE", func() { sw.PatchU64BE(0, 1) }},
+		{"Grow", func() { sw.Grow(8) }},
 		{"LenU8", func() { sw.LenU8(section) }},
 		{"LenU16LE", func() { sw.LenU16LE(section) }},
 		{"LenU16BE", func() { sw.LenU16BE(section) }},
@@ -515,5 +516,29 @@ func TestStreamWriterResetClearsReserve(t *testing.T) {
 	sw.U32LE(2)
 	if buf.Len() != 4 {
 		t.Fatalf("flush after Reset = %d bytes, want 4", buf.Len())
+	}
+}
+
+func TestStreamWriterGrow(t *testing.T) {
+	var buf bytes.Buffer
+	sw := NewStreamWriter(&buf, WithFlushThreshold(0))
+	sw.Grow(64)
+
+	allocs := testing.AllocsPerRun(100, func() {
+		sw.Reset()
+		sw.U32LE(1)
+		sw.U64LE(2)
+		sw.RawStr("0123456789abcdef")
+	})
+	if allocs > 0 {
+		t.Fatalf("writes after Grow allocated %v times, want 0", allocs)
+	}
+	mustPanic(t, "bt: negative size -1", func() { sw.Grow(-1) })
+
+	failing := NewStreamWriter(failingWriter{err: errBoom}, WithFlushThreshold(1))
+	failing.U8(1)
+	failing.Grow(-1)
+	if !errors.Is(failing.Err(), errBoom) {
+		t.Fatalf("Err = %v, want boom", failing.Err())
 	}
 }

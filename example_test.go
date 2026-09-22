@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"errors"
 	"fmt"
+	"io"
 
 	"github.com/zxbass/bt"
 )
@@ -108,4 +109,135 @@ func ExampleStreamWriter() {
 	// Output:
 	// 0
 	// 00 00 00 01 64 6f 6e 65
+}
+
+func ExampleCursor_Sub() {
+	data := []byte{
+		3, 'o', 'n', 'e',
+		3, 't', 'w', 'o',
+	}
+	c := bt.NewCursor(data)
+
+	for c.BytesLeft() > 0 {
+		rec := c.Sub(int(c.U8()))
+		fmt.Println(rec.RawStr(rec.BytesLeft()))
+	}
+	// Output:
+	// one
+	// two
+}
+
+func ExampleCursor_IndexedRecords() {
+	data := []byte{1, 2, 3, 4, 5, 6}
+	c := bt.NewCursor(data)
+
+	for i, rec := range c.IndexedRecords(3) {
+		fmt.Println(i, rec.U8(), rec.U16LE())
+	}
+	// Output:
+	// 0 1 770
+	// 1 4 1541
+}
+
+func ExampleCursor_Chunks() {
+	data := []byte("abcdabcdabcdabcd")
+	c := bt.NewCursor(data)
+
+	total := 0
+	for chunk := range c.Chunks(4) {
+		for _, b := range chunk {
+			total += int(b)
+		}
+	}
+	fmt.Println(total)
+	// Output:
+	// 1576
+}
+
+func ExampleCursor_ULEB128() {
+	w := bt.NewWriter()
+	w.ULEB128(300)
+	w.SLEB128(-5)
+
+	c := bt.NewCursor(w.Bytes())
+	fmt.Println(c.ULEB128(), c.SLEB128())
+	// Output:
+	// 300 -5
+}
+
+func ExampleCursor_StrUnsafe() {
+	data := []byte("zero-copy\x00rest")
+	c := bt.NewCursor(data)
+
+	s := c.StrUnsafe(9)
+	fmt.Println(s, c.BytesLeft())
+	// Output:
+	// zero-copy 5
+}
+
+func ExampleStream() {
+	r := bytes.NewReader([]byte{
+		3, 'a', 'b', 'c',
+		2, 'h', 'i',
+	})
+	st := bt.NewStream(r)
+
+	for {
+		if err := st.Fill(1); err != nil {
+			if errors.Is(err, io.ErrUnexpectedEOF) && st.Buffered() == 0 {
+				break
+			}
+			panic(err)
+		}
+		size := int(st.Cursor().U8())
+		st.Advance(1)
+
+		if err := st.Fill(size); err != nil {
+			panic(err)
+		}
+		body := st.Cursor().RawStr(size)
+		st.Advance(size)
+		fmt.Println(body)
+	}
+	// Output:
+	// abc
+	// hi
+}
+
+func ExampleWithMaxBuffer() {
+	st := bt.NewStream(bytes.NewReader([]byte{1, 2, 3}), bt.WithMaxBuffer(2))
+
+	err := st.Fill(3)
+	fmt.Println(errors.Is(err, bt.ErrBufferLimit))
+	// Output:
+	// true
+}
+
+func ExampleStreamWriter_LenU16BE() {
+	var buf bytes.Buffer
+	sw := bt.NewStreamWriter(&buf, bt.WithFlushThreshold(0))
+
+	sw.LenU16BE(func(w *bt.Writer) {
+		w.CStr("id")
+		w.U32LE(7)
+	})
+	if err := sw.Flush(); err != nil {
+		panic(err)
+	}
+
+	fmt.Printf("% x\n", buf.Bytes())
+	// Output:
+	// 00 07 69 64 00 07 00 00 00
+}
+
+func ExampleWriter_WriteTo() {
+	w := bt.NewWriter()
+	w.U32BE(1)
+	w.CStr("ok")
+
+	var buf bytes.Buffer
+	n, err := w.WriteTo(&buf)
+	fmt.Println(n, err, w.Len(), buf.Len())
+	// Output:
+	// 7 <nil> 0 7
 }

@@ -13,8 +13,8 @@ import (
 // panics.
 //
 // Writer grows its buffer by appending, so it allocates only when a write
-// outgrows the current capacity. Call Grow or Reserve up front to keep hot
-// paths allocation-free.
+// outgrows the current capacity. Call Grow up front to keep hot paths
+// allocation-free.
 //
 // Bytes aliases the writer's buffer and is invalidated by the next write that
 // grows it. Writer is not safe for concurrent use.
@@ -389,8 +389,8 @@ func (w *Writer) PatchU64BE(pos int, v uint64) {
 }
 
 // sectionLen panics unless n fits a prefix of the given bit width.
-func sectionLen(n, bits int) int {
-	if uint64(n) > (uint64(1)<<uint(bits))-1 {
+func sectionLen(n uint64, bits int) uint64 {
+	if n > (uint64(1)<<uint(bits))-1 {
 		panic(fmt.Sprintf("bt: section length %d does not fit in %d bits", n, bits))
 	}
 	return n
@@ -401,7 +401,7 @@ func (w *Writer) LenU8(f func(*Writer)) {
 	off := w.Reserve(1)
 	start := len(w.b)
 	f(w)
-	w.PatchU8(off, byte(sectionLen(len(w.b)-start, 8)))
+	w.PatchU8(off, byte(sectionLen(uint64(len(w.b)-start), 8)))
 }
 
 // LenU16LE runs f and prefixes the bytes it writes with their length as
@@ -410,7 +410,7 @@ func (w *Writer) LenU16LE(f func(*Writer)) {
 	off := w.Reserve(2)
 	start := len(w.b)
 	f(w)
-	w.PatchU16LE(off, uint16(sectionLen(len(w.b)-start, 16)))
+	w.PatchU16LE(off, uint16(sectionLen(uint64(len(w.b)-start), 16)))
 }
 
 // LenU16BE runs f and prefixes the bytes it writes with their length as
@@ -419,7 +419,7 @@ func (w *Writer) LenU16BE(f func(*Writer)) {
 	off := w.Reserve(2)
 	start := len(w.b)
 	f(w)
-	w.PatchU16BE(off, uint16(sectionLen(len(w.b)-start, 16)))
+	w.PatchU16BE(off, uint16(sectionLen(uint64(len(w.b)-start), 16)))
 }
 
 // LenU32LE runs f and prefixes the bytes it writes with their length as
@@ -428,7 +428,7 @@ func (w *Writer) LenU32LE(f func(*Writer)) {
 	off := w.Reserve(4)
 	start := len(w.b)
 	f(w)
-	w.PatchU32LE(off, uint32(sectionLen(len(w.b)-start, 32)))
+	w.PatchU32LE(off, uint32(sectionLen(uint64(len(w.b)-start), 32)))
 }
 
 // LenU32BE runs f and prefixes the bytes it writes with their length as
@@ -437,5 +437,5 @@ func (w *Writer) LenU32BE(f func(*Writer)) {
 	off := w.Reserve(4)
 	start := len(w.b)
 	f(w)
-	w.PatchU32BE(off, uint32(sectionLen(len(w.b)-start, 32)))
+	w.PatchU32BE(off, uint32(sectionLen(uint64(len(w.b)-start), 32)))
 }

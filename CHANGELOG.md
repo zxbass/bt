@@ -9,13 +9,16 @@
   `PatchU32LE`/`PatchU32BE`/`PatchU64LE`/`PatchU64BE`, and the closure helpers
   `LenU8`, `LenU16LE`, `LenU16BE`, `LenU32LE`, `LenU32BE`.
 - `StreamWriter`: buffered writes to an `io.Writer` with sticky errors,
-  automatic flushing (`WithFlushThreshold`) and explicit `Flush`. `Reserve`
-  suspends automatic flushing while a reserve is open, and `Write`/`WriteByte`/
-  `WriteString` return the sticky flush error.
+  automatic flushing (`WithFlushThreshold`), explicit `Flush` and `Grow`.
+  `Reserve` suspends automatic flushing while a reserve is open, and
+  `Write`/`WriteByte`/`WriteString` return the sticky flush error.
 - Writing panics on values that do not fit their encoding (a 24-bit write above
   `0xFFFFFF`), on `CStr` values containing NUL, and on patches outside the
   buffer.
 - New round-trip fuzz targets and writer benchmarks.
+- Usage scenarios in the README plus runnable godoc examples for records,
+  chunks, streaming and framed writing; the test suite now builds on 32-bit
+  platforms.
 
 ## v0.2.0 - 2026-09-21
 
