@@ -1,4 +1,5 @@
-// Package bt provides fast helpers for reading trusted binary data.
+// Package bt provides fast helpers for reading and writing trusted binary
+// data.
 //
 // # Contract
 //
@@ -10,6 +11,10 @@
 //
 //	bt: negative size -1
 //
+// Writer panics when a value does not fit its encoding, for example:
+//
+//	bt: value 0x1000000 does not fit in 24 bits
+//
 // Callers are expected to validate sizes up front with CanRead/Ensure so that a
 // panic signals a programming error rather than malformed input.
 //
@@ -18,8 +23,10 @@
 // Cursor aliases the underlying buffer: it does not copy. Mutating the buffer
 // after NewCursor changes what the cursor reads, and slices returned by
 // Bytes/Peek alias the buffer as well. The buffer must outlive the cursor.
+// Writer.Bytes aliases the writer's buffer and is invalidated by the next
+// write that grows it.
 //
-// Cursor is not safe for concurrent use.
+// No type is safe for concurrent use.
 package bt
 
 import (

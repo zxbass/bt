@@ -2,13 +2,13 @@
 
 [![CI](https://github.com/zxbass/bt/actions/workflows/ci.yml/badge.svg)](https://github.com/zxbass/bt/actions/workflows/ci.yml)
 
-Fast helpers for reading trusted binary data from byte slices.
+Fast helpers for reading and writing trusted binary data.
 
-`bt` is built for parsers that already know their input is well-formed: reads
-past the end of the buffer **panic** instead of returning an error, so there is
-no `if err != nil` noise on every field. You validate sizes up front with
-`CanRead`/`Ensure`, and a panic then means a bug in the parser, not malformed
-input.
+`bt` is built for parsers and encoders that already know their data is
+well-formed: reads past the end of the buffer and writes that do not fit their
+encoding **panic** instead of returning an error, so there is no `if err != nil`
+noise on every field. You validate sizes up front with `CanRead`/`Ensure`, and a
+panic then means a bug in the parser, not malformed input.
 
 ```go
 c := bt.NewCursor(data)
@@ -20,6 +20,16 @@ if !c.CanRead(7) {
 id := c.U16LE()
 flags := c.U8()
 price := c.F32LE()
+```
+
+The same fields come back out with `Writer`:
+
+```go
+w := bt.NewWriter()
+
+w.U16LE(id)
+w.U8(flags)
+w.F32LE(price)
 ```
 
 ## Install
@@ -44,6 +54,10 @@ Requires Go 1.23+ (iterators).
 | Streams | `Stream`: `Fill`, `Cursor`, `Advance`, `Discard`, `Buffered`, `Err`, `WithMaxBuffer` |
 | `io` interop | `NewCursorFromReader`, `Read`, `ReadByte` |
 | Errors | `ErrNoNul` (used by `CStr`), `ErrBufferLimit` (used by `Stream`) |
+| Writing | `Writer`: same numeric/varint methods as `Cursor`, plus `RawStr`, `CStr` |
+| Writer state | `NewWriter`, `Len`, `Bytes`, `Reset`, `Grow`, `Truncate`, `Write`, `WriteByte`, `WriteString`, `WriteTo` |
+| Sections | `Reserve`, `PatchU8`, `PatchU16LE`/`PatchU16BE`, `PatchU32LE`/`PatchU32BE`, `PatchU64LE`/`PatchU64BE`, `LenU8`, `LenU16LE`/`LenU16BE`, `LenU32LE`/`LenU32BE` |
+| Stream writing | `StreamWriter`: the same write methods, `Flush`, `Err`, `Buffered`, `Reset`, `WithFlushThreshold` |
 
 `Sub(n)` returns an independent cursor over the next `n` bytes and advances the
 parent. Use it to parse a length-delimited record without letting its reads
@@ -76,6 +90,42 @@ for chunk := range c.Chunks(1 << 20) {
 
 Iteration consumes the parent cursor. A size that is not positive or a trailing
 partial record panics.
+
+## Writing
+
+`Writer` appends encoded values to a byte slice. Invalid values panic and
+nothing allocates while the capacity lasts; `Grow` reserves room up front:
+
+```go
+w := bt.NewWriter()
+w.Grow(64)
+
+w.U16LE(id)
+w.CStr(name)
+w.SLEB128(delta)
+data := w.Bytes()
+```
+
+Length-delimited records use `Reserve` with a `Patch` method, or the
+`LenU8`/`LenU16LE`/`LenU16BE`/`LenU32LE`/`LenU32BE` helpers, which run a closure
+and patch the prefix for you:
+
+```go
+off := w.Reserve(2)
+start := w.Len()
+w.RawStr("payload")
+w.PatchU16LE(off, uint16(w.Len()-start))
+
+w.LenU16LE(func(w *bt.Writer) {
+	w.CStr("name")
+	w.U32LE(42)
+})
+```
+
+`RawStr` writes a string as-is (NUL bytes included), while `CStr` appends a NUL
+and panics on embedded NULs so that a round trip cannot silently lose data.
+`Writer` also implements `io.Writer`, `io.ByteWriter`, `io.StringWriter` and
+`io.WriterTo`; `WriteTo` drains the buffer like `bytes.Buffer` does.
 
 ## Streaming
 
@@ -111,6 +161,29 @@ Cursors from `Cursor()` are invalidated by the next `Fill`/`Advance` because the
 window may move or compact. `WithMaxBuffer(n)` caps memory and makes `Fill`
 return `ErrBufferLimit` instead of growing further.
 
+`StreamWriter` is the write-side counterpart: it buffers into an `io.Writer`
+with the same error model. The typed write methods never return errors;
+failures are sticky and surface through `Err`/`Flush`, while `Write`,
+`WriteByte` and `WriteString` also return the sticky error, including a flush
+failure caused by the call itself. After the first error every write is a no-op
+until `Reset`. Buffered bytes are flushed automatically once they reach
+`WithFlushThreshold(n)` (64 KiB by default); values `<= 0` switch to manual
+`Flush` only.
+
+```go
+sw := bt.NewStreamWriter(out)
+sw.U16LE(kind)
+sw.RawStr(payload)
+if err := sw.Flush(); err != nil {
+	return err
+}
+```
+
+`Reserve` suspends automatic flushing while any reserve is open, so the reserved
+positions and the body between them stay in the buffer. A `Patch` inside the
+reserved range releases it; flushing resumes on the next write or an explicit
+`Flush`.
+
 For one-shot use, `NewCursorFromReader(r)` reads the whole stream and returns a
 regular `Cursor`. `Cursor` also implements `io.Reader` and `io.ByteReader`
 (`Read`/`ReadByte` return `io.EOF` instead of panicking).
@@ -120,12 +193,20 @@ regular `Cursor`. `Cursor` also implements `io.Reader` and `io.ByteReader`
 - Out-of-bounds reads panic: `bt: need 4 bytes at offset 2, have 1`.
 - Negative sizes panic: `bt: negative size -1`.
 - A failed read leaves the cursor offset unchanged, including `ULEB128`/`SLEB128`.
+- A value that does not fit its encoding panics, for example
+  `bt: value 0x1000000 does not fit in 24 bits`. `CStr` panics on embedded NULs,
+  patches outside the buffer panic, and a section longer than its prefix panics.
 - `Cursor` aliases the buffer: it does not copy, the buffer must outlive the
   cursor, and `Bytes`/`Peek`/`Sub` results alias it too. `Bytes`/`Peek` cap the
   result at `n`, so it cannot be resliced past the requested window.
+- `Writer.Bytes` aliases the writer's buffer and is invalidated by the next
+  write that grows it.
 - `RawStr` copies, `StrUnsafe` does not (the string is only valid while the
   buffer is alive and unmodified).
-- `Cursor` is not safe for concurrent use.
+- `StreamWriter` drops the buffered bytes when a flush fails; the error is
+  sticky and the io methods return it. `Flush` with an open `Reserve` panics,
+  and a `Patch` only releases a reserve, it does not flush.
+- No type is safe for concurrent use.
 
 ## Performance
 
@@ -152,6 +233,29 @@ bare `binary.LittleEndian` call. The dynamic `U16(order)`/`U32(order)`/... forms
 cost ~1.5 ns more than the `LE`/`BE` wrappers because of interface dispatch.
 `BenchmarkUnsafeCast` (amd64/arm64 only) is the theoretical floor: a raw
 native-endian load with no bounds check.
+
+### Writing
+
+`go test -run=^$ -bench=. -benchmem`, amd64 (Ryzen 5 5600, Go 1.27):
+
+| operation | bt | stdlib |
+| --- | --- | --- |
+| `U16LE` | 2.4 ns, 0 allocs | 0.7 ns `binary.LittleEndian.AppendUint16` |
+| `U32BE` | 2.2 ns, 0 allocs | 0.7 ns `binary.BigEndian.AppendUint32` |
+| `U64LE` | 2.5 ns, 0 allocs | 0.8 ns `binary.LittleEndian.AppendUint64` |
+| `U24LE` | 3.4 ns, 0 allocs | — |
+| `ULEB128` | 4.7 ns, 0 allocs | 3.0 ns `binary.AppendUvarint` |
+| `SLEB128` | 4.7 ns, 0 allocs | — |
+| `RawStr(8)` / `CStr(8)` | 2.1 / 7.6 ns, 0 allocs | — |
+| `LenU8` section with an 8-byte payload | 9.7 ns, 0 allocs | — |
+| 1024 mixed records (`WriteRecords`) | 3.8 GB/s, ~5.7 ns/record, 0 allocs | — |
+| 16-byte records via `StreamWriter` (4096 rec) | ~45 µs, 0 allocs | ~26 µs `bufio.Writer` |
+
+The writer methods cost 1.5-2 ns more than a bare `AppendUint*` call because
+every write updates the writer slice header through a pointer; the value checks
+are branches, not allocations. `StreamWriter` pays per-field method overhead on
+top, so batching raw records through `bufio.Writer` is faster; it buys the
+sticky-error, no-`if err != nil` API and the section helpers.
 
 ## Debug playground
 

@@ -1,5 +1,22 @@
 # Changelog
 
+## v0.3.0 - 2026-09-22
+
+- `Writer`: append-style encoding for scalars, varints and strings, with
+  `io.Writer`/`io.ByteWriter`/`io.StringWriter`/`io.WriterTo` interop plus
+  `Grow`, `Truncate`, `Reset` and `Len`.
+- Length-prefixed sections: `Reserve` with `PatchU8`/`PatchU16LE`/`PatchU16BE`/
+  `PatchU32LE`/`PatchU32BE`/`PatchU64LE`/`PatchU64BE`, and the closure helpers
+  `LenU8`, `LenU16LE`, `LenU16BE`, `LenU32LE`, `LenU32BE`.
+- `StreamWriter`: buffered writes to an `io.Writer` with sticky errors,
+  automatic flushing (`WithFlushThreshold`) and explicit `Flush`. `Reserve`
+  suspends automatic flushing while a reserve is open, and `Write`/`WriteByte`/
+  `WriteString` return the sticky flush error.
+- Writing panics on values that do not fit their encoding (a 24-bit write above
+  `0xFFFFFF`), on `CStr` values containing NUL, and on patches outside the
+  buffer.
+- New round-trip fuzz targets and writer benchmarks.
+
 ## v0.2.0 - 2026-09-21
 
 - `NewCursorFromReader` plus `Read`/`ReadByte`, so `Cursor` implements

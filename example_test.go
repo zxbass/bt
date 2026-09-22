@@ -1,6 +1,7 @@
 package bt_test
 
 import (
+	"bytes"
 	"errors"
 	"fmt"
 
@@ -51,4 +52,60 @@ func ExampleCStr() {
 	// Output:
 	// hello <nil>
 	// true
+}
+
+func ExampleWriter() {
+	w := bt.NewWriter()
+	w.U16LE(0x1234)
+	w.CStr("dev")
+	w.SLEB128(-1)
+	fmt.Printf("% x\n", w.Bytes())
+	// Output:
+	// 34 12 64 65 76 00 7f
+}
+
+func ExampleWriter_LenU16LE() {
+	w := bt.NewWriter()
+	w.LenU16LE(func(w *bt.Writer) {
+		w.RawStr("hello")
+		w.U8(7)
+	})
+
+	c := bt.NewCursor(w.Bytes())
+	fmt.Println(c.U16LE())
+	fmt.Println(c.StrOrRest(5))
+	fmt.Println(c.U8())
+	// Output:
+	// 6
+	// hello
+	// 7
+}
+
+func ExampleWriter_Reserve() {
+	w := bt.NewWriter()
+	off := w.Reserve(2)
+	w.RawStr("payload")
+	w.PatchU16LE(off, uint16(w.Len()-2))
+
+	c := bt.NewCursor(w.Bytes())
+	fmt.Println(c.U16LE())
+	fmt.Println(c.StrOrRest(7))
+	// Output:
+	// 7
+	// payload
+}
+
+func ExampleStreamWriter() {
+	var buf bytes.Buffer
+	sw := bt.NewStreamWriter(&buf, bt.WithFlushThreshold(0))
+	sw.U32BE(1)
+	sw.RawStr("done")
+	fmt.Println(buf.Len())
+	if err := sw.Flush(); err != nil {
+		fmt.Println(err)
+	}
+	fmt.Printf("% x\n", buf.Bytes())
+	// Output:
+	// 0
+	// 00 00 00 01 64 6f 6e 65
 }
