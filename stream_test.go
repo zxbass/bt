@@ -288,3 +288,43 @@ func TestStreamCompaction(t *testing.T) {
 		t.Fatalf("window cap = %d, compaction is not keeping it bounded", cap(st.buf))
 	}
 }
+
+func FuzzStreamRoundTrip(f *testing.F) {
+	f.Add([]byte("hello\x00world"), uint8(1))
+	f.Add([]byte{}, uint8(0))
+	f.Add(bytes.Repeat([]byte{0xAB}, 100), uint8(7))
+
+	f.Fuzz(func(t *testing.T, data []byte, chunk uint8) {
+		readers := []struct {
+			name string
+			new  func() io.Reader
+		}{
+			{"bytes.Reader", func() io.Reader { return bytes.NewReader(data) }},
+			{"chunked", func() io.Reader { return &chunkReader{data: data, chunk: 1 + int(chunk)%16} }},
+			{"onebyte", func() io.Reader { return iotest.OneByteReader(bytes.NewReader(data)) }},
+		}
+
+		for _, tc := range readers {
+			st := NewStream(tc.new())
+			got := make([]byte, 0, len(data))
+
+			for {
+				if err := st.Fill(1); err != nil {
+					if errors.Is(err, io.ErrUnexpectedEOF) && st.Buffered() == 0 {
+						break
+					}
+					t.Fatalf("%s: Fill(1): %v", tc.name, err)
+				}
+				got = append(got, st.Cursor().U8())
+				st.Advance(1)
+			}
+
+			if !bytes.Equal(got, data) {
+				t.Fatalf("%s: read %q, want %q", tc.name, got, data)
+			}
+			if !errors.Is(st.Err(), io.EOF) {
+				t.Fatalf("%s: Err() = %v, want io.EOF", tc.name, st.Err())
+			}
+		}
+	})
+}

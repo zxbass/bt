@@ -47,6 +47,8 @@ jobs:
           - FuzzCStr
           - FuzzWriterScalarsRoundTrip
           - FuzzWriterSectionsRoundTrip
+          - FuzzStreamRoundTrip
+          - FuzzStreamWriterMatchesWriter
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-go@v5

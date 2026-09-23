@@ -117,6 +117,8 @@ if allocs > 0 {
 | `FuzzCStr` | `ErrNoNul` only without a NUL; the result is the prefix up to the first NUL |
 | `FuzzWriterScalarsRoundTrip` | every writer/reader scalar pair round-trips, including float bit patterns |
 | `FuzzWriterSectionsRoundTrip` | `LenU8`/`LenU16*`/`LenU32*` payload lengths read back correctly |
+| `FuzzStreamRoundTrip` | every byte survives `Stream` over whole-buffer, chunked and one-byte readers |
+| `FuzzStreamWriterMatchesWriter` | `StreamWriter` output is byte-identical to `Writer` for random op scripts and thresholds |
 
 Run one locally:
 

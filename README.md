@@ -35,6 +35,22 @@ w.F32LE(price)
 A book-length guide to the contracts, internals and recipes lives in
 [`docs/`](docs/README.md).
 
+## Contents
+
+- [Install](#install)
+- [API](#api)
+- [Strings](#strings)
+- [Iterators](#iterators)
+- [Writing](#writing)
+- [Streaming](#streaming)
+- [Design philosophy](#design-philosophy)
+- [Contract](#contract)
+- [Usage scenarios](#usage-scenarios)
+- [Performance](#performance)
+- [Debug playground](#debug-playground)
+- [Development](#development)
+- [License](#license)
+
 ## Install
 
 ```
@@ -72,6 +88,22 @@ record := c.Sub(int(c.U16LE()))
 kind := record.U8()
 name := record.StrOrRest(record.BytesLeft())
 ```
+
+## Strings
+
+The reader and the writer share method names, but the contracts differ. On the
+read side `CStr` is a package-level function that reports a missing terminator;
+`Writer.CStr` is a method that appends one and refuses embedded NULs.
+
+| Call | Side | NUL handling | Copy |
+| --- | --- | --- | --- |
+| `bt.CStr(buf)` | read | stops at the first NUL; returns `ErrNoNul` if there is none | yes |
+| `bt.CStrOrRest(buf)` | read | stops at the first NUL; returns the whole buffer otherwise | yes |
+| `Cursor.StrOrRest(sz)` | read | stops at the first NUL inside the `sz`-byte window | yes |
+| `Cursor.RawStr(sz)` | read | exactly `sz` bytes, NULs kept | yes |
+| `Cursor.StrUnsafe(sz)` | read | exactly `sz` bytes, NULs kept | no, aliases the buffer |
+| `Writer.RawStr(s)` | write | writes `s` unchanged, NULs kept | — |
+| `Writer.CStr(s)` | write | appends a terminating NUL; panics if `s` contains one | — |
 
 ## Iterators
 
@@ -197,6 +229,15 @@ reserved range releases it; flushing resumes on the next write or an explicit
 For one-shot use, `NewCursorFromReader(r)` reads the whole stream and returns a
 regular `Cursor`. `Cursor` also implements `io.Reader` and `io.ByteReader`
 (`Read`/`ReadByte` return `io.EOF` instead of panicking).
+
+## Design philosophy
+
+`bt` assumes trusted input, so mistakes are programmer errors: reads and writes
+panic instead of threading an error through every field, and validation happens
+once per region with `CanRead`/`Ensure`. I/O is the exception — it is
+environmental, so `Stream`/`StreamWriter` report sticky errors instead of
+panicking. The trade-offs, including the rejected alternatives, are written down
+in [`docs/09-design-decisions.md`](docs/09-design-decisions.md).
 
 ## Contract
 
@@ -342,10 +383,13 @@ machine-dependent; the comparison columns are from the same run.
 | `UnsafeCast` (no bounds check, native endian) | 0.54 ns | — |
 
 The panic-on-out-of-bounds contract costs about 1 ns per numeric read versus a
-bare `binary.LittleEndian` call. The dynamic `U16(order)`/`U32(order)`/... forms
-cost ~1.5 ns more than the `LE`/`BE` wrappers because of interface dispatch.
-`BenchmarkUnsafeCast` (amd64/arm64 only) is the theoretical floor: a raw
-native-endian load with no bounds check.
+bare `binary.LittleEndian` call. In one run on this machine the dynamic forms
+cost `U16LE` 4.0 ns vs `U16(order)` 5.6 ns (`U32`/`U64` behave the same way), so
+the interface dispatch is worth avoiding on hot paths. The writing table below
+measures `Writer` methods — a different operation — and its `U16(order)` row
+must not be compared with `Cursor.U16LE` here. `BenchmarkUnsafeCast`
+(amd64/arm64 only) is the theoretical floor: a raw native-endian load with no
+bounds check.
 
 Varints use the unrolled fast paths (chapter 4) and were measured on the
 Ryzen 5 5600 used for the writing table below: `ULEB128` (1/2/10 bytes)

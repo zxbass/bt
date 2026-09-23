@@ -53,6 +53,26 @@ Key points:
   the window may move or compact. Copy what must outlive the step.
 - `Fill(0)` always succeeds.
 
+A cursor is a view of the window at the moment it was taken. Re-acquire it
+after every `Fill`/`Advance`; keeping one across a boundary is the most common
+`Stream` mistake:
+
+```go
+c := st.Cursor()
+if err := st.Fill(4); err != nil { // the window may move or compact
+	return err
+}
+kind := c.U8() // BUG: c may point at stale or unrelated bytes
+```
+
+```go
+if err := st.Fill(4); err != nil {
+	return err
+}
+kind := st.Cursor().U8() // re-acquire, then commit what was consumed
+st.Advance(1)
+```
+
 ### Memory behaviour
 
 Without a limit, the window grows by doubling starting from 512 bytes. A

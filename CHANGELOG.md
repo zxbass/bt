@@ -1,5 +1,14 @@
 # Changelog
 
+## v0.4.2 - 2026-09-23
+
+- README: table of contents, a string-API comparison table that separates
+  `CStr` (reader, returns `ErrNoNul`) from `Writer.CStr` (panics on embedded
+  NULs), a design-philosophy section and same-run reader benchmark numbers.
+- Fuzz targets `FuzzStreamRoundTrip` and `FuzzStreamWriterMatchesWriter`, plus a
+  `Sub` case in `FuzzCursorNavigation`; both new targets are in the CI matrix.
+- `docs/06`: a "how not to" example for cursors held across `Fill`/`Advance`.
+
 ## v0.4.1 - 2026-09-23
 
 - `StreamWriter.Grow`/`Reserve` reject negative sizes even after a sticky

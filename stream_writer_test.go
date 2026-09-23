@@ -5,6 +5,7 @@ import (
 	"encoding/binary"
 	"errors"
 	"io"
+	"strings"
 	"testing"
 )
 
@@ -564,4 +565,90 @@ func TestStreamWriterReserveZeroDoesNotFlush(t *testing.T) {
 	if want := []byte{0, 1, 2}; !bytes.Equal(buf.Bytes(), want) {
 		t.Fatalf("bytes = % x, want % x", buf.Bytes(), want)
 	}
+}
+
+// streamChunk returns a deterministic slice of data for the fuzz script.
+func streamChunk(data []byte, i, n int) string {
+	if len(data) == 0 {
+		return ""
+	}
+	start := i % len(data)
+	end := start + n
+	if end > len(data) {
+		end = len(data)
+	}
+	return string(data[start:end])
+}
+
+func FuzzStreamWriterMatchesWriter(f *testing.F) {
+	f.Add([]byte("hello\x00world"), []byte{0, 1, 2, 3, 4, 5, 6, 7})
+	f.Add([]byte{}, []byte{})
+
+	f.Fuzz(func(t *testing.T, data, script []byte) {
+		var dst bytes.Buffer
+		threshold := 1
+		if len(script) > 0 {
+			threshold = 1 + int(script[0])%64
+		}
+		if len(script) > 256 {
+			script = script[:256]
+		}
+
+		w := NewWriter()
+		sw := NewStreamWriter(&dst, WithFlushThreshold(threshold))
+
+		for i, b := range script {
+			v := byte(0)
+			if len(data) > 0 {
+				v = data[i%len(data)]
+			}
+
+			switch b % 8 {
+			case 0:
+				w.U8(v)
+				sw.U8(v)
+			case 1:
+				w.U16LE(uint16(v)<<8 | uint16(v))
+				sw.U16LE(uint16(v)<<8 | uint16(v))
+			case 2:
+				w.U32BE(uint32(v) * 0x01010101)
+				sw.U32BE(uint32(v) * 0x01010101)
+			case 3:
+				s := streamChunk(data, i, 1+int(b)%16)
+				w.RawStr(s)
+				sw.RawStr(s)
+			case 4:
+				s := streamChunk(data, i, 1+int(b)%8)
+				if strings.IndexByte(s, 0) >= 0 {
+					continue
+				}
+				w.CStr(s)
+				sw.CStr(s)
+			case 5:
+				v := uint64(v) << (b % 16)
+				w.ULEB128(v)
+				sw.ULEB128(v)
+			case 6:
+				n := 1 + int(b)%4
+				pw := w.Reserve(n)
+				ps := sw.Reserve(n)
+				w.PatchU8(pw, v)
+				sw.PatchU8(ps, v)
+			case 7:
+				s := streamChunk(data, i, 1+int(b)%16)
+				w.LenU8(func(w *Writer) { w.RawStr(s) })
+				sw.LenU8(func(w *Writer) { w.RawStr(s) })
+			}
+		}
+
+		if err := sw.Flush(); err != nil {
+			t.Fatalf("Flush: %v", err)
+		}
+		if sw.Err() != nil {
+			t.Fatalf("Err: %v", sw.Err())
+		}
+		if !bytes.Equal(dst.Bytes(), w.Bytes()) {
+			t.Fatalf("stream output % x != writer output % x", dst.Bytes(), w.Bytes())
+		}
+	})
 }

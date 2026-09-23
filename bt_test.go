@@ -831,7 +831,7 @@ func FuzzCursorNavigation(f *testing.F) {
 			n := int(cmd >> 2)
 			pos := c.Pos()
 
-			switch cmd & 3 {
+			switch cmd % 5 {
 			case 0:
 				if c.CanRead(n) {
 					if got := len(c.Bytes(n)); got != n {
@@ -868,6 +868,26 @@ func FuzzCursorNavigation(f *testing.F) {
 					c.Ensure(n)
 				} else {
 					mustPanic(t, "bt: need", func() { c.Ensure(n) })
+				}
+			case 4:
+				if c.CanRead(n) {
+					sub := c.Sub(n)
+					if sub.Pos() != 0 || sub.BytesLeft() != n {
+						t.Fatalf("Sub(%d): pos %d, left %d", n, sub.Pos(), sub.BytesLeft())
+					}
+					if c.Pos() != pos+n {
+						t.Fatalf("Sub(%d) advanced parent to %d, want %d", n, c.Pos(), pos+n)
+					}
+					if n > 0 {
+						if got := sub.U8(); got != data[pos] {
+							t.Fatalf("sub.U8() = %d, want %d", got, data[pos])
+						}
+					}
+				} else {
+					mustPanic(t, "bt: need", func() { c.Sub(n) })
+					if c.Pos() != pos {
+						t.Fatalf("failed Sub(%d) moved parent to %d", n, c.Pos())
+					}
 				}
 			}
 
