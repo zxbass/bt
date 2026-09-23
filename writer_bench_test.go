@@ -178,7 +178,7 @@ func BenchmarkWriteRecords(b *testing.B) {
 			w.U16LE(uint16(j))
 		}
 	}
-	b.ReportMetric(float64(records)/float64(b.N), "records/op")
+	b.ReportMetric(records, "records/op")
 }
 
 func BenchmarkWriteFixedRecords(b *testing.B) {
@@ -186,10 +186,10 @@ func BenchmarkWriteFixedRecords(b *testing.B) {
 		recSize = 16
 		records = 4096
 	)
-	b.SetBytes(recSize * records)
 	b.ReportAllocs()
 
 	b.Run("writer", func(b *testing.B) {
+		b.SetBytes(recSize * records)
 		w := NewWriter()
 		w.Grow(recSize * records)
 		for i := 0; i < b.N; i++ {
@@ -202,6 +202,7 @@ func BenchmarkWriteFixedRecords(b *testing.B) {
 	})
 
 	b.Run("streamwriter", func(b *testing.B) {
+		b.SetBytes(recSize * records)
 		sw := NewStreamWriter(io.Discard)
 		for i := 0; i < b.N; i++ {
 			for j := 0; j < records; j++ {
@@ -218,6 +219,7 @@ func BenchmarkWriteFixedRecords(b *testing.B) {
 	})
 
 	b.Run("streamwriter-grow", func(b *testing.B) {
+		b.SetBytes(recSize * records)
 		sw := NewStreamWriter(io.Discard)
 		sw.Grow(recSize * records)
 		for i := 0; i < b.N; i++ {
@@ -235,6 +237,7 @@ func BenchmarkWriteFixedRecords(b *testing.B) {
 	})
 
 	b.Run("bufio", func(b *testing.B) {
+		b.SetBytes(recSize * records)
 		bw := bufio.NewWriterSize(io.Discard, 64<<10)
 		var rec [recSize]byte
 		for i := 0; i < b.N; i++ {

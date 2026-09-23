@@ -537,8 +537,31 @@ func TestStreamWriterGrow(t *testing.T) {
 
 	failing := NewStreamWriter(failingWriter{err: errBoom}, WithFlushThreshold(1))
 	failing.U8(1)
-	failing.Grow(-1)
+	mustPanic(t, "bt: negative size -1", func() { failing.Grow(-1) })
+	mustPanic(t, "bt: negative size -1", func() { failing.Reserve(-1) })
 	if !errors.Is(failing.Err(), errBoom) {
 		t.Fatalf("Err = %v, want boom", failing.Err())
+	}
+}
+
+func TestStreamWriterReserveZeroDoesNotFlush(t *testing.T) {
+	var buf bytes.Buffer
+	sw := NewStreamWriter(&buf, WithFlushThreshold(1))
+
+	p := sw.Reserve(1)
+	sw.U8(1)
+	sw.PatchU8(p, 0)
+	if buf.Len() != 0 {
+		t.Fatalf("patch flushed %d bytes", buf.Len())
+	}
+
+	sw.Reserve(0)
+	if buf.Len() != 0 {
+		t.Fatalf("Reserve(0) flushed %d bytes", buf.Len())
+	}
+
+	sw.U8(2)
+	if want := []byte{0, 1, 2}; !bytes.Equal(buf.Bytes(), want) {
+		t.Fatalf("bytes = % x, want % x", buf.Bytes(), want)
 	}
 }

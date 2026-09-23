@@ -97,8 +97,9 @@ Consequences:
 - `StreamWriter` sits at an equilibrium: making `afterWrite` inlineable would
   push every per-field method over the budget, so the current split (one call
   per field) is the best available arrangement.
-- `Cursor.Sub` cannot inline, which is why it allocates; `Records`/`Chunks`
-  avoid that by yielding values.
+- `Sub` returns a pointer that escapes to the caller, so each call allocates a
+  heap cursor (it is also over the inline budget); `Records`/`Chunks` avoid that
+  by yielding values.
 - `Writer.ULEB128` inlines, so the `Append*` wrappers that build a stack
   `Writer` remain cheap and allocation-free.
 - The `LE`/`BE` reader wrappers duplicate the generic `order` bodies because a

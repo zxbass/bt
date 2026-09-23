@@ -228,11 +228,15 @@ func parseHeader(data []byte) (Header, error) {
 	h.Flags = c.U16BE()
 	h.Length = c.U32BE()
 
-	if !c.CanRead(int(h.Length)) {
-		return Header{}, fmt.Errorf("payload length %d exceeds buffer", h.Length)
+	if !c.CanRead(8) {
+		return Header{}, fmt.Errorf("name field is truncated")
 	}
 	h.Name = c.StrOrRest(8)
 	_ = c.Align(4) // payload starts on a 4-byte boundary
+
+	if !c.CanRead(int(h.Length)) {
+		return Header{}, fmt.Errorf("payload length %d exceeds buffer", h.Length)
+	}
 	return h, nil
 }
 ```

@@ -2,6 +2,7 @@ package bt
 
 import (
 	"encoding/binary"
+	"fmt"
 	"io"
 )
 
@@ -70,8 +71,12 @@ func (sw *StreamWriter) Reset() {
 }
 
 // Grow ensures room for at least n more buffered bytes, so subsequent writes
-// do not reallocate. It is a no-op after a sticky error.
+// do not reallocate. It is a no-op after a sticky error, but a negative size
+// always panics.
 func (sw *StreamWriter) Grow(n int) {
+	if n < 0 {
+		panic(fmt.Sprintf("bt: negative size %d", n))
+	}
 	if sw.err != nil {
 		return
 	}
@@ -461,7 +466,11 @@ func (sw *StreamWriter) CStr(s string) {
 // bytes and the body written before the patch stay in the buffer. A Patch call
 // whose position falls inside the reserved range releases it; flushing resumes
 // on the next write or an explicit Flush. Flushing with an open Reserve panics.
+// Reserve(0) is a no-op and does not flush; a negative size always panics.
 func (sw *StreamWriter) Reserve(n int) int {
+	if n < 0 {
+		panic(fmt.Sprintf("bt: negative size %d", n))
+	}
 	if sw.err != nil {
 		return 0
 	}
@@ -469,7 +478,6 @@ func (sw *StreamWriter) Reserve(n int) int {
 	if n > 0 {
 		sw.reserved = append(sw.reserved, reservation{start: pos, end: pos + n})
 	}
-	sw.afterWrite()
 	return pos
 }
 

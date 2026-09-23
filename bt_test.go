@@ -389,7 +389,7 @@ func TestCursorVarintTruncatedPrefixes(t *testing.T) {
 	u := []byte{0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0x01}
 	for i := range u {
 		c := NewCursor(u[:i])
-		mustPanic(t, "bt: ", func() { c.ULEB128() })
+		mustPanic(t, "bt: truncated ULEB128 at offset 0", func() { c.ULEB128() })
 		if got := c.Pos(); got != 0 {
 			t.Fatalf("ULEB128 prefix %d moved offset to %d", i, got)
 		}
@@ -398,7 +398,7 @@ func TestCursorVarintTruncatedPrefixes(t *testing.T) {
 	s := []byte{0x80, 0x80, 0x80, 0x80, 0x80, 0x80, 0x80, 0x80, 0x80, 0x7F}
 	for i := range s {
 		c := NewCursor(s[:i])
-		mustPanic(t, "bt: ", func() { c.SLEB128() })
+		mustPanic(t, "bt: truncated SLEB128 at offset 0", func() { c.SLEB128() })
 		if got := c.Pos(); got != 0 {
 			t.Fatalf("SLEB128 prefix %d moved offset to %d", i, got)
 		}
@@ -688,7 +688,14 @@ func TestCursorOffsetUnchangedOnFailedRead(t *testing.T) {
 	for _, op := range ops {
 		t.Run(op.name, func(t *testing.T) {
 			c := NewCursor(op.data)
-			mustPanic(t, "bt: need", func() { op.fn(c) })
+			prefix := map[string]string{
+				"ULEB128": "bt: truncated ULEB128",
+				"SLEB128": "bt: truncated SLEB128",
+			}[op.name]
+			if prefix == "" {
+				prefix = "bt: need"
+			}
+			mustPanic(t, prefix, func() { op.fn(c) })
 			if got := c.Pos(); got != 0 {
 				t.Fatalf("Pos() after failed read = %d, want 0", got)
 			}

@@ -333,8 +333,6 @@ machine-dependent; the comparison columns are from the same run.
 | `U16LE` | 4.2 ns, 0 allocs | 3.0 ns direct, 35 ns + 1 alloc via `binary.Read` |
 | `U32LE` | 4.0 ns, 0 allocs | 3.0 ns direct, 56 ns + 1 alloc |
 | `U64LE` | 4.1 ns, 0 allocs | 3.0 ns direct, 60 ns + 1 alloc |
-| `ULEB128` (1/2/10 bytes) | 2.2 / 2.4 / 6.4 ns | — |
-| `SLEB128` (1/2/10 bytes) | 2.3 / 2.8 / 6.7 ns | — |
 | `RawStr(4)` / `StrUnsafe(4)` | 30 ns / 13 ns, 1 / 0 allocs | — |
 | `ParseRecords` (mixed fields + name strings) | 461 MB/s, ~38 ns/record | — |
 | `Records(16)` iteration (64 KiB) | ~6 GB/s, 0 allocs | — |
@@ -347,8 +345,12 @@ The panic-on-out-of-bounds contract costs about 1 ns per numeric read versus a
 bare `binary.LittleEndian` call. The dynamic `U16(order)`/`U32(order)`/... forms
 cost ~1.5 ns more than the `LE`/`BE` wrappers because of interface dispatch.
 `BenchmarkUnsafeCast` (amd64/arm64 only) is the theoretical floor: a raw
-native-endian load with no bounds check. The varint rows were re-measured on the
-machine in the Writing table after the unrolled fast paths.
+native-endian load with no bounds check.
+
+Varints use the unrolled fast paths (chapter 4) and were measured on the
+Ryzen 5 5600 used for the writing table below: `ULEB128` (1/2/10 bytes)
+2.2 / 2.4 / 6.4 ns, `SLEB128` 2.3 / 2.8 / 6.7 ns, all allocation-free. On the
+i3 the same rows read 2.6 / 3.1 / 8.6 ns and 2.9 / 3.4 / 9.0 ns.
 
 ### Writing
 

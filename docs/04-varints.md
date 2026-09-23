@@ -60,8 +60,8 @@ would disagree.
 `Cursor.ULEB128`/`SLEB128` follow the package contract:
 
 - a successful read advances the offset by 1-10 bytes and returns the value;
-- a truncated varint panics with the usual bounds message and **does not move
-  the offset**;
+- a truncated varint panics with `bt: truncated ULEB128 at offset N` (or
+  `SLEB128`) and **does not move the offset**;
 - a malformed tenth byte panics with `bt: ULEB128 overflow` /
   `bt: SLEB128 overflow`, leaving the offset unchanged.
 
@@ -94,7 +94,7 @@ func (c *Cursor) ULEB128() (result uint64) {
 			return c.uleb128Rest()
 		}
 	}
-	panic(c.needMessage(1))
+	panic(c.truncatedMessage("ULEB128"))
 }
 ```
 
@@ -104,7 +104,7 @@ Everything from three to ten bytes goes to a flat, fully unrolled helper
 ```go
 b := c.b[c.off:]
 if len(b) < 3 {
-	panic(c.needMessage(1))
+	panic(c.truncatedMessage("ULEB128"))
 }
 v := uint64(b[0]&0x7F) | uint64(b[1]&0x7F)<<7
 if b[2] < 0x80 {
@@ -113,7 +113,7 @@ if b[2] < 0x80 {
 }
 v |= uint64(b[2]&0x7F) << 14
 if len(b) < 4 {
-	panic(c.needMessage(1))
+	panic(c.truncatedMessage("ULEB128"))
 }
 ...
 ```
@@ -128,12 +128,15 @@ Design notes:
   avoids the loop's per-iteration bookkeeping (bounds compare, shift counter,
   overflow test) and lets the CPU speculate across bytes. It is the same trick
   `google.golang.org/protobuf/encoding/protowire` uses in `ConsumeVarint`.
-- **Why `panic(c.needMessage(1))` instead of `c.needPanic(1)`**:
+- **Why `panic(c.truncatedMessage(...))` instead of `c.needPanic(...)`**:
   `needPanic` is a function call, and Go's terminating-statement analysis does
   not know it panics, so a function ending in `needPanic` would need an
-  unreachable `return` that would show up as uncovered code. `needMessage`
-  returns the formatted string and the `panic(...)` builtin is a terminating
-  statement, so the helper ends cleanly and coverage stays at 100%.
+  unreachable `return` that would show up as uncovered code. The `*Message`
+  helpers return the formatted string and the `panic(...)` builtin is a
+  terminating statement, so the helper ends cleanly and coverage stays at 100%.
+  A dedicated message also reads better than a bounds message: mid-varint the
+  missing byte count is unknown, so `bt: truncated ULEB128 at offset N` is
+  clearer than `need 1 bytes ... have 2`.
 
 Sign handling is the only difference for `sleb128Rest`: at each terminal byte,
 if bit 6 is set, the high bits are sign-extended by subtracting

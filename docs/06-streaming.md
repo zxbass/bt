@@ -163,9 +163,9 @@ handles it by tracking reservations as ranges:
 sw := bt.NewStreamWriter(out)
 
 off := sw.Reserve(2)
-start := sw.Len()
+start := sw.Buffered()
 sw.RawStr(payload)
-sw.PatchU16LE(off, uint16(sw.Len()-start))
+sw.PatchU16LE(off, uint16(sw.Buffered()-start))
 ```
 
 Rules:
@@ -178,7 +178,14 @@ Rules:
 - `Flush` with an open reservation panics (`bt: Flush with open Reserve`)
   instead of silently invalidating positions;
 - because patches do not flush, several patches inside one reservation are
-  safe.
+  safe;
+- finish every patch **before** the next write or `Flush`: that write may flush
+  and drain the buffer, and an old position then either panics or, worse, points
+  at unrelated bytes of a later record. Reserve, write the body, patch, and only
+  then continue writing;
+- inside a `Len*` closure write only through the provided `*Writer`. The
+  `StreamWriter` does not register a reservation for `Len*`, so writing through
+  `sw` from the closure can trigger a flush in the middle of the section.
 
 The closure helpers are simpler when the prefix is at the start of the value:
 

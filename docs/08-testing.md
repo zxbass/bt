@@ -3,7 +3,7 @@
 The package keeps a hard bar: **100% statement coverage for the library
 package** (`github.com/zxbass/bt`), fuzz targets for every decoding path, and
 allocation assertions for the hot paths. `cmd/btdebug` is a debug tool and is
-exempt (around 42%).
+exempt (around 45%).
 
 This chapter explains the machinery so new code can meet the same bar.
 
@@ -126,8 +126,9 @@ go test -run=^$ -fuzz=FuzzWriterScalarsRoundTrip -fuzztime=30s .
 
 When a fuzzer finds a failure, Go writes the input to
 `testdata/fuzz/<Target>/` and keeps it in the repository as a regression seed.
-The seed for `FuzzWriterSectionsRoundTrip` (a 256-byte payload for a `LenU8`
-section) is checked in and runs on every `go test`.
+The checked-in seed for `FuzzWriterSectionsRoundTrip` is a 300-byte payload with
+`op=0`: it exercises the guard that skips payloads the `LenU8` prefix cannot
+hold, so it runs on every `go test` without reaching the section body.
 
 Lessons from the seeds:
 

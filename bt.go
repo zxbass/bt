@@ -112,6 +112,13 @@ func (c *Cursor) needMessage(n int) string {
 		n, c.off, len(c.b)-c.off)
 }
 
+// truncatedMessage formats the panic for a varint that continues past the end
+// of the buffer. Unlike a plain read, the missing byte count is not known, so
+// the message names the encoding instead of a size.
+func (c *Cursor) truncatedMessage(kind string) string {
+	return fmt.Sprintf("bt: truncated %s at offset %d", kind, c.off)
+}
+
 // CanRead reports whether n bytes can be read from the current offset.
 func (c *Cursor) CanRead(n int) bool {
 	return n >= 0 && n <= len(c.b)-c.off
@@ -409,7 +416,7 @@ func (c *Cursor) ULEB128() (result uint64) {
 		}
 	}
 
-	panic(c.needMessage(1))
+	panic(c.truncatedMessage("ULEB128"))
 }
 
 // uleb128Rest decodes a three- to ten-byte varint whose first two bytes carry
@@ -417,7 +424,7 @@ func (c *Cursor) ULEB128() (result uint64) {
 func (c *Cursor) uleb128Rest() uint64 {
 	b := c.b[c.off:]
 	if len(b) < 3 {
-		panic(c.needMessage(1))
+		panic(c.truncatedMessage("ULEB128"))
 	}
 	v := uint64(b[0]&0x7F) | uint64(b[1]&0x7F)<<7
 	if b[2] < 0x80 {
@@ -426,7 +433,7 @@ func (c *Cursor) uleb128Rest() uint64 {
 	}
 	v |= uint64(b[2]&0x7F) << 14
 	if len(b) < 4 {
-		panic(c.needMessage(1))
+		panic(c.truncatedMessage("ULEB128"))
 	}
 	if b[3] < 0x80 {
 		c.off += 4
@@ -434,7 +441,7 @@ func (c *Cursor) uleb128Rest() uint64 {
 	}
 	v |= uint64(b[3]&0x7F) << 21
 	if len(b) < 5 {
-		panic(c.needMessage(1))
+		panic(c.truncatedMessage("ULEB128"))
 	}
 	if b[4] < 0x80 {
 		c.off += 5
@@ -442,7 +449,7 @@ func (c *Cursor) uleb128Rest() uint64 {
 	}
 	v |= uint64(b[4]&0x7F) << 28
 	if len(b) < 6 {
-		panic(c.needMessage(1))
+		panic(c.truncatedMessage("ULEB128"))
 	}
 	if b[5] < 0x80 {
 		c.off += 6
@@ -450,7 +457,7 @@ func (c *Cursor) uleb128Rest() uint64 {
 	}
 	v |= uint64(b[5]&0x7F) << 35
 	if len(b) < 7 {
-		panic(c.needMessage(1))
+		panic(c.truncatedMessage("ULEB128"))
 	}
 	if b[6] < 0x80 {
 		c.off += 7
@@ -458,7 +465,7 @@ func (c *Cursor) uleb128Rest() uint64 {
 	}
 	v |= uint64(b[6]&0x7F) << 42
 	if len(b) < 8 {
-		panic(c.needMessage(1))
+		panic(c.truncatedMessage("ULEB128"))
 	}
 	if b[7] < 0x80 {
 		c.off += 8
@@ -466,7 +473,7 @@ func (c *Cursor) uleb128Rest() uint64 {
 	}
 	v |= uint64(b[7]&0x7F) << 49
 	if len(b) < 9 {
-		panic(c.needMessage(1))
+		panic(c.truncatedMessage("ULEB128"))
 	}
 	if b[8] < 0x80 {
 		c.off += 9
@@ -474,7 +481,7 @@ func (c *Cursor) uleb128Rest() uint64 {
 	}
 	v |= uint64(b[8]&0x7F) << 56
 	if len(b) < 10 {
-		panic(c.needMessage(1))
+		panic(c.truncatedMessage("ULEB128"))
 	}
 	if b[9] > 1 {
 		panic("bt: ULEB128 overflow")
@@ -510,7 +517,7 @@ func (c *Cursor) SLEB128() int64 {
 		}
 	}
 
-	panic(c.needMessage(1))
+	panic(c.truncatedMessage("SLEB128"))
 }
 
 // sleb128Rest decodes a three- to ten-byte varint whose first two bytes carry
@@ -518,7 +525,7 @@ func (c *Cursor) SLEB128() int64 {
 func (c *Cursor) sleb128Rest() int64 {
 	b := c.b[c.off:]
 	if len(b) < 3 {
-		panic(c.needMessage(1))
+		panic(c.truncatedMessage("SLEB128"))
 	}
 	v := int64(b[0]&0x7F) | int64(b[1]&0x7F)<<7
 	if b[2] < 0x80 {
@@ -530,7 +537,7 @@ func (c *Cursor) sleb128Rest() int64 {
 	}
 	v |= int64(b[2]&0x7F) << 14
 	if len(b) < 4 {
-		panic(c.needMessage(1))
+		panic(c.truncatedMessage("SLEB128"))
 	}
 	if b[3] < 0x80 {
 		if b[3]&0x40 != 0 {
@@ -541,7 +548,7 @@ func (c *Cursor) sleb128Rest() int64 {
 	}
 	v |= int64(b[3]&0x7F) << 21
 	if len(b) < 5 {
-		panic(c.needMessage(1))
+		panic(c.truncatedMessage("SLEB128"))
 	}
 	if b[4] < 0x80 {
 		if b[4]&0x40 != 0 {
@@ -552,7 +559,7 @@ func (c *Cursor) sleb128Rest() int64 {
 	}
 	v |= int64(b[4]&0x7F) << 28
 	if len(b) < 6 {
-		panic(c.needMessage(1))
+		panic(c.truncatedMessage("SLEB128"))
 	}
 	if b[5] < 0x80 {
 		if b[5]&0x40 != 0 {
@@ -563,7 +570,7 @@ func (c *Cursor) sleb128Rest() int64 {
 	}
 	v |= int64(b[5]&0x7F) << 35
 	if len(b) < 7 {
-		panic(c.needMessage(1))
+		panic(c.truncatedMessage("SLEB128"))
 	}
 	if b[6] < 0x80 {
 		if b[6]&0x40 != 0 {
@@ -574,7 +581,7 @@ func (c *Cursor) sleb128Rest() int64 {
 	}
 	v |= int64(b[6]&0x7F) << 42
 	if len(b) < 8 {
-		panic(c.needMessage(1))
+		panic(c.truncatedMessage("SLEB128"))
 	}
 	if b[7] < 0x80 {
 		if b[7]&0x40 != 0 {
@@ -585,7 +592,7 @@ func (c *Cursor) sleb128Rest() int64 {
 	}
 	v |= int64(b[7]&0x7F) << 49
 	if len(b) < 9 {
-		panic(c.needMessage(1))
+		panic(c.truncatedMessage("SLEB128"))
 	}
 	if b[8] < 0x80 {
 		if b[8]&0x40 != 0 {
@@ -596,7 +603,7 @@ func (c *Cursor) sleb128Rest() int64 {
 	}
 	v |= int64(b[8]&0x7F) << 56
 	if len(b) < 10 {
-		panic(c.needMessage(1))
+		panic(c.truncatedMessage("SLEB128"))
 	}
 	if b[9] != 0x00 && b[9] != 0x7F {
 		panic("bt: SLEB128 overflow")

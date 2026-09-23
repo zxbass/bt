@@ -1,5 +1,17 @@
 # Changelog
 
+## Unreleased
+
+- `StreamWriter.Grow`/`Reserve` reject negative sizes even after a sticky
+  error, and `Reserve(0)` no longer flushes pending bytes.
+- Truncated varints panic with `bt: truncated ULEB128/SLEB128 at offset N`
+  instead of a misleading `need 1 bytes ... have 2` message.
+- Benchmarks: `BenchmarkWriteRecords` reports `records/op` correctly and
+  `BenchmarkWriteFixedRecords` reports throughput for every variant.
+- Documentation fixes: `StreamWriter.Buffered` in the sections recipe, reserve
+  and patch lifetime warnings, accurate fuzz-seed description, updated panic
+  reference, cleaner performance tables.
+
 ## v0.4.0 - 2026-09-22
 
 - Varint decoding is unrolled: `ULEB128` and `SLEB128` resolve three- to

@@ -85,6 +85,11 @@ Streaming keeps the error model from `io`:
 - `StreamWriter` types record the first write error and turn every later write
   into a no-op; `Write`/`WriteByte`/`WriteString` return that error, while the
   typed methods surface it through `Err()`/`Flush()`.
+- The no-op rule covers the encoder's own checks too: after a sticky error,
+  `U24LE(0x1000000)` or `CStr` with an embedded NUL do not panic, and `Patch`
+  calls do not validate their offsets. Only negative sizes keep panicking:
+  `Grow`/`Reserve` check the sign before looking at the sticky error, so a
+  programmer error is never masked by an I/O failure.
 
 ## 1.3 Failed reads do not move the cursor
 
@@ -169,6 +174,7 @@ buffer are independent.
 | Message | Produced by |
 | --- | --- |
 | `bt: need N bytes at offset O, have H` | every read past the end, `Align` |
+| `bt: truncated ULEB128 at offset N` / `bt: truncated SLEB128 at offset N` | varints that continue past the end of the buffer |
 | `bt: negative size N` | negative sizes, `Grow`, `Truncate`, `Reserve` |
 | `bt: value 0x... does not fit in 24 bits` | `U24LE/BE`, `I24LE/BE` (unsigned form) |
 | `bt: value N does not fit in 24 bits` | `I24LE/BE` (signed form) |
