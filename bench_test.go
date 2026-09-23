@@ -278,6 +278,70 @@ func BenchmarkSLEB128(b *testing.B) {
 	})
 }
 
+func BenchmarkTryULEB128(b *testing.B) {
+	cases := []struct {
+		name string
+		unit []byte
+	}{
+		{"1byte", []byte{0x7F}},
+		{"2byte", []byte{0x80, 0x01}},
+		{"3byte", []byte{0x80, 0x80, 0x01}},
+		{"5byte", []byte{0x80, 0x80, 0x80, 0x80, 0x01}},
+		{"10byte", []byte{0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0x01}},
+	}
+	for _, tc := range cases {
+		b.Run(tc.name, func(b *testing.B) {
+			buf := bytes.Repeat(tc.unit, (64<<10)/len(tc.unit))
+			b.SetBytes(int64(len(tc.unit)))
+			b.ReportAllocs()
+
+			c := NewCursor(buf)
+			for i := 0; i < b.N; i++ {
+				if c.BytesLeft() < len(tc.unit) {
+					c = NewCursor(buf)
+				}
+				v, err := c.TryULEB128()
+				if err != nil {
+					b.Fatal(err)
+				}
+				sinkU64 = v
+			}
+		})
+	}
+}
+
+func BenchmarkTrySLEB128(b *testing.B) {
+	cases := []struct {
+		name string
+		unit []byte
+	}{
+		{"1byte", []byte{0x3F}},
+		{"2byte", []byte{0xC0, 0x00}},
+		{"3byte", []byte{0x80, 0xC0, 0x00}},
+		{"5byte", []byte{0xFF, 0xFF, 0xFF, 0xFF, 0x07}},
+		{"10byte", []byte{0x80, 0x80, 0x80, 0x80, 0x80, 0x80, 0x80, 0x80, 0x80, 0x7F}},
+	}
+	for _, tc := range cases {
+		b.Run(tc.name, func(b *testing.B) {
+			buf := bytes.Repeat(tc.unit, (64<<10)/len(tc.unit))
+			b.SetBytes(int64(len(tc.unit)))
+			b.ReportAllocs()
+
+			c := NewCursor(buf)
+			for i := 0; i < b.N; i++ {
+				if c.BytesLeft() < len(tc.unit) {
+					c = NewCursor(buf)
+				}
+				v, err := c.TrySLEB128()
+				if err != nil {
+					b.Fatal(err)
+				}
+				sinkU64 = uint64(v)
+			}
+		})
+	}
+}
+
 func BenchmarkStrings(b *testing.B) {
 	buf := []byte("abcd0123456789abcdefghijklmnopqrstuvwxyz\x00")
 

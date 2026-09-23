@@ -54,6 +54,14 @@ import (
 // ErrNoNul is returned by CStr when the buffer has no null terminator.
 var ErrNoNul = errors.New("bt: null terminator not found")
 
+// ErrTruncated is returned by TryULEB128 and TrySLEB128 when the buffer ends
+// before the varint's terminal byte. Filling the buffer and retrying may help.
+var ErrTruncated = errors.New("bt: truncated varint")
+
+// ErrVarintOverflow is returned by TryULEB128 and TrySLEB128 when the varint
+// does not fit 64 bits. Retrying cannot help: the data is malformed.
+var ErrVarintOverflow = errors.New("bt: varint overflow")
+
 // CStr returns the bytes up to the first null terminator. It returns ErrNoNul
 // if the buffer contains no null byte.
 func CStr(buf []byte) (string, error) {
@@ -631,6 +639,61 @@ func (c *Cursor) sleb128Rest() int64 {
 	}
 	c.off += 10
 	return v | int64(b[9]&0x7F)<<63
+}
+
+// TryULEB128 is like ULEB128 but returns ErrTruncated or ErrVarintOverflow
+// instead of panicking. On failure the cursor offset is unchanged, so the
+// caller can inspect the bytes or refill and retry.
+func (c *Cursor) TryULEB128() (uint64, error) {
+	var v uint64
+	for i := 0; ; i++ {
+		if c.off+i >= len(c.b) {
+			return 0, ErrTruncated
+		}
+		b := c.b[c.off+i]
+		if i == 9 {
+			if b > 1 {
+				return 0, ErrVarintOverflow
+			}
+			v |= uint64(b) << 63
+			c.off += 10
+			return v, nil
+		}
+		v |= uint64(b&0x7F) << (7 * i)
+		if b < 0x80 {
+			c.off += i + 1
+			return v, nil
+		}
+	}
+}
+
+// TrySLEB128 is like SLEB128 but returns ErrTruncated or ErrVarintOverflow
+// instead of panicking. On failure the cursor offset is unchanged, so the
+// caller can inspect the bytes or refill and retry.
+func (c *Cursor) TrySLEB128() (int64, error) {
+	var v int64
+	for i := 0; ; i++ {
+		if c.off+i >= len(c.b) {
+			return 0, ErrTruncated
+		}
+		b := c.b[c.off+i]
+		if i == 9 {
+			if b != 0x00 && b != 0x7F {
+				return 0, ErrVarintOverflow
+			}
+			v |= int64(b&0x7F) << 63
+			c.off += 10
+			return v, nil
+		}
+		v |= int64(b&0x7F) << (7 * i)
+		if b < 0x80 {
+			if b&0x40 != 0 {
+				v |= -1 << (7 * (i + 1))
+			}
+			c.off += i + 1
+			return v, nil
+		}
+	}
 }
 
 // StrOrRest reads exactly sz bytes and returns the bytes up to the first null

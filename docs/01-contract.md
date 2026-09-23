@@ -71,7 +71,13 @@ pollutes the inlining decision of the hot path.
 | --- | --- | --- |
 | Read past the end, negative size | panic (string value) | `Cursor` methods |
 | Value does not fit its encoding, bad patch, NUL in `CStr` | panic (string value) | `Writer` methods |
+| Malformed varint in a `Try*` call | sentinel `error`, no panic | `TryULEB128`, `TrySLEB128` |
 | I/O failure while streaming | sticky `error`, no panic | `Stream.Fill`, `StreamWriter.Flush` |
+
+`TryULEB128` and `TrySLEB128` are the one opt-in exception to the panic rule:
+they return `ErrTruncated` or `ErrVarintOverflow` and never panic (chapter 4).
+They exist because a varint's length is data-dependent, so `CanRead` cannot
+validate one in advance.
 
 Panic values are always strings with a `bt: ` prefix; there are no custom panic
 types to match on. Tests assert prefixes, and `cmd/btdebug` recovers them to
@@ -107,7 +113,9 @@ _ = c.U8() // offset 1
 
 The rule makes error recovery possible: after a panic from a read, the cursor
 still points at the bytes that failed, so a caller that recovers can inspect
-them. The same property is verified by fuzz tests.
+them. The same property is verified by fuzz tests. `TryULEB128`/`TrySLEB128`
+keep the offset unchanged on error too, which is what lets a `Stream` parser
+refill and retry (section 6.1).
 
 ## 1.4 Aliasing and lifetimes
 

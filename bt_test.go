@@ -595,6 +595,138 @@ func TestCursorSLEB128RollsBackToStart(t *testing.T) {
 	}
 }
 
+func TestTryULEB128(t *testing.T) {
+	tests := []struct {
+		name string
+		in   []byte
+		want uint64
+	}{
+		{"zero", []byte{0x00}, 0},
+		{"one", []byte{0x01}, 1},
+		{"127", []byte{0x7F}, 127},
+		{"128", []byte{0x80, 0x01}, 128},
+		{"300", []byte{0xAC, 0x02}, 300},
+		{"1<<21", []byte{0x80, 0x80, 0x80, 0x01}, 1 << 21},
+		{"non-canonical zero", []byte{0x80, 0x00}, 0},
+		{"max", []byte{0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0x01}, math.MaxUint64},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			c := NewCursor(tt.in)
+			got, err := c.TryULEB128()
+			if err != nil {
+				t.Fatalf("TryULEB128(% x) error = %v", tt.in, err)
+			}
+			if got != tt.want {
+				t.Fatalf("TryULEB128(% x) = %d, want %d", tt.in, got, tt.want)
+			}
+			if c.BytesLeft() != 0 {
+				t.Fatalf("BytesLeft() = %d, want 0", c.BytesLeft())
+			}
+		})
+	}
+
+	c := NewCursor([]byte{0x2A})
+	if got, err := c.TryULEB128(); err != nil || got != 0x2A {
+		t.Fatalf("TryULEB128 on a tail byte = %d, %v; want 42, nil", got, err)
+	}
+
+	for _, tt := range []struct {
+		name string
+		in   []byte
+		want error
+	}{
+		{"empty", nil, ErrTruncated},
+		{"continuation", []byte{0x80}, ErrTruncated},
+		{"mid", []byte{0x80, 0x80}, ErrTruncated},
+		{"long", []byte{0x80, 0x80, 0x80}, ErrTruncated},
+		{"overflow", []byte{0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0x02}, ErrVarintOverflow},
+		{"continuation at 10th byte", []byte{0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0x80}, ErrVarintOverflow},
+	} {
+		t.Run("error "+tt.name, func(t *testing.T) {
+			c := NewCursor(tt.in)
+			got, err := c.TryULEB128()
+			if !errors.Is(err, tt.want) {
+				t.Fatalf("TryULEB128(% x) error = %v, want %v", tt.in, err, tt.want)
+			}
+			if got != 0 {
+				t.Fatalf("TryULEB128(% x) = %d on error, want 0", tt.in, got)
+			}
+			if c.Pos() != 0 {
+				t.Fatalf("Pos() after failed TryULEB128 = %d, want 0", c.Pos())
+			}
+		})
+	}
+}
+
+func TestTrySLEB128(t *testing.T) {
+	tests := []struct {
+		name string
+		in   []byte
+		want int64
+	}{
+		{"zero", []byte{0x00}, 0},
+		{"one", []byte{0x01}, 1},
+		{"minus one", []byte{0x7F}, -1},
+		{"63", []byte{0x3F}, 63},
+		{"minus 64", []byte{0x40}, -64},
+		{"64", []byte{0xC0, 0x00}, 64},
+		{"minus 65", []byte{0xBF, 0x7F}, -65},
+		{"minus 8193", []byte{0xFF, 0xBF, 0x7F}, -8193},
+		{"non-canonical minus one", []byte{0xFF, 0x7F}, -1},
+		{"max int64", []byte{0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0x00}, math.MaxInt64},
+		{"min int64", []byte{0x80, 0x80, 0x80, 0x80, 0x80, 0x80, 0x80, 0x80, 0x80, 0x7F}, math.MinInt64},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			c := NewCursor(tt.in)
+			got, err := c.TrySLEB128()
+			if err != nil {
+				t.Fatalf("TrySLEB128(% x) error = %v", tt.in, err)
+			}
+			if got != tt.want {
+				t.Fatalf("TrySLEB128(% x) = %d, want %d", tt.in, got, tt.want)
+			}
+			if c.BytesLeft() != 0 {
+				t.Fatalf("BytesLeft() = %d, want 0", c.BytesLeft())
+			}
+		})
+	}
+
+	c := NewCursor([]byte{0x7F})
+	if got, err := c.TrySLEB128(); err != nil || got != -1 {
+		t.Fatalf("TrySLEB128 on a tail byte = %d, %v; want -1, nil", got, err)
+	}
+
+	for _, tt := range []struct {
+		name string
+		in   []byte
+		want error
+	}{
+		{"empty", nil, ErrTruncated},
+		{"continuation", []byte{0x80}, ErrTruncated},
+		{"mid", []byte{0x80, 0x80}, ErrTruncated},
+		{"long", []byte{0x80, 0x80, 0x80}, ErrTruncated},
+		{"overflow positive", []byte{0x80, 0x80, 0x80, 0x80, 0x80, 0x80, 0x80, 0x80, 0x80, 0x01}, ErrVarintOverflow},
+		{"overflow negative", []byte{0x80, 0x80, 0x80, 0x80, 0x80, 0x80, 0x80, 0x80, 0x80, 0x40}, ErrVarintOverflow},
+		{"continuation at 10th byte", []byte{0x80, 0x80, 0x80, 0x80, 0x80, 0x80, 0x80, 0x80, 0x80, 0x80}, ErrVarintOverflow},
+	} {
+		t.Run("error "+tt.name, func(t *testing.T) {
+			c := NewCursor(tt.in)
+			got, err := c.TrySLEB128()
+			if !errors.Is(err, tt.want) {
+				t.Fatalf("TrySLEB128(% x) error = %v, want %v", tt.in, err, tt.want)
+			}
+			if got != 0 {
+				t.Fatalf("TrySLEB128(% x) = %d on error, want 0", tt.in, got)
+			}
+			if c.Pos() != 0 {
+				t.Fatalf("Pos() after failed TrySLEB128 = %d, want 0", c.Pos())
+			}
+		})
+	}
+}
+
 func TestCursorNavigation(t *testing.T) {
 	data := []byte{0, 1, 2, 3, 4, 5, 6, 7, 8, 9}
 	c := NewCursor(data)
@@ -1011,6 +1143,73 @@ func FuzzSLEB128RoundTrip(f *testing.F) {
 		}
 		if c.BytesLeft() != 0 {
 			t.Fatalf("BytesLeft() = %d, want 0 (encoded % x)", c.BytesLeft(), enc)
+		}
+	})
+}
+
+func panicULEB128(data []byte) (v uint64, off int, ok bool) {
+	c := NewCursor(data)
+	defer func() {
+		if recover() != nil {
+			ok = false
+		}
+	}()
+	return c.ULEB128(), c.Pos(), true
+}
+
+func panicSLEB128(data []byte) (v int64, off int, ok bool) {
+	c := NewCursor(data)
+	defer func() {
+		if recover() != nil {
+			ok = false
+		}
+	}()
+	return c.SLEB128(), c.Pos(), true
+}
+
+func FuzzTryVarintMatchesPanic(f *testing.F) {
+	f.Add([]byte{0x00})
+	f.Add([]byte{0x80})
+	f.Add([]byte{0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0x01})
+	f.Add([]byte{0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0x02})
+
+	f.Fuzz(func(t *testing.T, data []byte) {
+		wantU, wantOffU, okU := panicULEB128(data)
+		c := NewCursor(data)
+		gotU, errU := c.TryULEB128()
+		if okU {
+			if errU != nil {
+				t.Fatalf("ULEB128(% x) = %d, %d; TryULEB128 = %v", data, wantU, wantOffU, errU)
+			}
+			if gotU != wantU || c.Pos() != wantOffU {
+				t.Fatalf("ULEB128(% x) = %d, %d; TryULEB128 = %d, %d", data, wantU, wantOffU, gotU, c.Pos())
+			}
+		} else {
+			if !errors.Is(errU, ErrTruncated) && !errors.Is(errU, ErrVarintOverflow) {
+				t.Fatalf("ULEB128(% x) panics, TryULEB128 error = %v", data, errU)
+			}
+			if c.Pos() != 0 {
+				t.Fatalf("ULEB128(% x) panics, TryULEB128 moved offset to %d", data, c.Pos())
+			}
+		}
+
+		wantS, wantOffS, okS := panicSLEB128(data)
+		c = NewCursor(data)
+		gotS, errS := c.TrySLEB128()
+		if okS {
+			if errS != nil {
+				t.Fatalf("SLEB128(% x) = %d, %d; TrySLEB128 = %v", data, wantS, wantOffS, errS)
+			}
+			if gotS != wantS || c.Pos() != wantOffS {
+				t.Fatalf("SLEB128(% x) = %d, %d; TrySLEB128 = %d, %d", data, wantS, wantOffS, gotS, c.Pos())
+			}
+		} else {
+			if !errors.Is(errS, ErrTruncated) && !errors.Is(errS, ErrVarintOverflow) {
+				t.Fatalf("SLEB128(% x) panics, TrySLEB128 error = %v", data, errS)
+			}
+			if c.Pos() != 0 {
+				t.Fatalf("SLEB128(% x) panics, TrySLEB128 moved offset to %d", data, c.Pos())
+			}
 		}
 	})
 }

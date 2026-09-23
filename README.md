@@ -67,12 +67,12 @@ Requires Go 1.23+ (iterators).
 | Unsigned | `U8`, `U16`/`U32`/`U64` (`order` + `LE`/`BE`), `U24LE`, `U24BE` |
 | Signed | `I8`, `I16`/`I32`/`I64` (`order` + `LE`/`BE`), `I24LE`, `I24BE` |
 | Floats | `F32`/`F64` (`order` + `LE`/`BE`) |
-| Varints | `ULEB128`, `SLEB128` |
+| Varints | `ULEB128`, `SLEB128`, `TryULEB128`, `TrySLEB128` |
 | Strings | `CStr`, `CStrOrRest`, `StrOrRest`, `RawStr`, `StrUnsafe` |
 | Iterators | `Records`, `IndexedRecords`, `Chunks` |
 | Streams | `Stream`: `Fill`, `Cursor`, `Advance`, `Discard`, `Buffered`, `Err`, `WithMaxBuffer` |
 | `io` interop | `NewCursorFromReader`, `Read`, `ReadByte` |
-| Errors | `ErrNoNul` (used by `CStr`), `ErrBufferLimit` (used by `Stream`) |
+| Errors | `ErrNoNul` (used by `CStr`), `ErrBufferLimit` (used by `Stream`), `ErrTruncated`/`ErrVarintOverflow` (used by `TryULEB128`/`TrySLEB128`) |
 | Writing | `Writer`: same numeric/varint methods as `Cursor`, plus `RawStr`, `CStr` |
 | Writer state | `NewWriter`, `Len`, `Bytes`, `Reset`, `Grow`, `Truncate`, `Align`, `Write`, `WriteByte`, `WriteString`, `WriteTo` |
 | Sections | `Reserve`, `PatchU8`, `PatchU16LE`/`PatchU16BE`, `PatchU32LE`/`PatchU32BE`, `PatchU64LE`/`PatchU64BE`, `LenU8`, `LenU16LE`/`LenU16BE`, `LenU32LE`/`LenU32BE` |
@@ -257,6 +257,9 @@ in [`docs/09-design-decisions.md`](docs/09-design-decisions.md).
 - Out-of-bounds reads panic: `bt: need 4 bytes at offset 2, have 1`.
 - Negative sizes panic: `bt: negative size -1`.
 - A failed read leaves the cursor offset unchanged, including `ULEB128`/`SLEB128`.
+- Varints that end prematurely or do not fit 64 bits panic. At a buffer or
+  stream boundary use `TryULEB128`/`TrySLEB128`, which return `ErrTruncated`
+  (refill and retry) or `ErrVarintOverflow` (data is malformed) and never panic.
 - A value that does not fit its encoding panics, for example
   `bt: value 0x1000000 does not fit in 24 bits`. `CStr` panics on embedded NULs,
   patches outside the buffer panic, a non-positive alignment size panics, and a

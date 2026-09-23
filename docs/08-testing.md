@@ -114,6 +114,7 @@ if allocs > 0 {
 | `FuzzCursorNavigation` | `Bytes`/`Peek`/`Skip`/`Ensure` advance or panic consistently, never move out of bounds |
 | `FuzzULEB128RoundTrip` | encoded bytes from `binary.PutUvarint` decode back to the same value |
 | `FuzzSLEB128RoundTrip` | same for the independent DWARF-style encoder |
+| `FuzzTryVarintMatchesPanic` | `TryULEB128`/`TrySLEB128` agree with the panicking decoders on value, offset and failure for arbitrary bytes |
 | `FuzzCStr` | `ErrNoNul` only without a NUL; the result is the prefix up to the first NUL |
 | `FuzzWriterScalarsRoundTrip` | every writer/reader scalar pair round-trips, including float bit patterns |
 | `FuzzWriterSectionsRoundTrip` | `LenU8`/`LenU16*`/`LenU32*` payload lengths read back correctly |

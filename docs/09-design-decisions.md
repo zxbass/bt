@@ -176,7 +176,36 @@ The package follows semantic versioning with an honest changelog:
 - v0.2: `io.Reader` support, iterators, `Stream`.
 - v0.3: `Writer`, sections, `StreamWriter`.
 - v0.4: unrolled varints, append helpers, `Align`.
+- v0.5: `SubInto`, `TryULEB128`/`TrySLEB128`.
 
-Additive changes bump the minor version; the changelog describes the effect on
-the contract, not just the API. No breaking change has been made yet, and the
-chapter 9.8 decision is the reason `Sub` still returns a pointer.
+Additive changes bump the minor version, or a patch when they are a small
+follow-up to the current minor (as `TryULEB128`/`TrySLEB128` are to v0.5); the
+changelog describes the effect on the contract, not just the API. No breaking
+change has been made yet, and the chapter 9.8 decision is the reason `Sub`
+still returns a pointer.
+
+## 9.14 `TryULEB128`/`TrySLEB128` for data-dependent lengths
+
+**Decision.** Keep the panicking `ULEB128`/`SLEB128` and add error-returning
+`TryULEB128`/`TrySLEB128` returning `ErrTruncated` or `ErrVarintOverflow`.
+
+**Why.** A varint is the one read whose size cannot be validated up front:
+`CanRead(10)` over-reads and fails on a valid short varint at the end of a
+buffer, so at a buffer or stream boundary the panic is not preventable. The
+package already has this shape for `CStr` (`ErrNoNul`) and `Stream` (sticky I/O
+errors); `Try*` extends it to varints and makes the `Stream` refill loop
+expressible without `recover`.
+
+**Why not change `ULEB128`/`SLEB128` themselves.** It would force `if err !=
+nil` at every call site, which is the cost the package exists to avoid, and it
+would not help callers who validate their regions. `Try*` is opt-in.
+
+**Why not `(value, bool)`.** The two failures need different responses:
+`ErrTruncated` means refill and retry, `ErrVarintOverflow` means the data is
+malformed. A boolean cannot carry that.
+
+**Implementation.** A loop with a bounds check per byte, committing the offset
+only on success; the unrolled panicking decoder stays the hot path. On the
+i3-10100 the loop costs 4.0/5.6/7.3/10.8/18.5 ns for 1/2/3/5/10 bytes versus
+2.6/3.2/5.3/6.3/8.5 ns unrolled, with zero allocations, and
+`FuzzTryVarintMatchesPanic` keeps both implementations in agreement.

@@ -227,11 +227,52 @@ reports 2.3-5.5 ns for 1-9 byte varints on its own hardware, and
 `binary.AppendUvarint` (unsigned only) sits at ~3.0 ns here. The unrolled tail
 brings `bt` into the same class while keeping the panic/rollback contract.
 
-## 4.8 Pitfalls
+## 4.8 Non-panicking decoding
+
+Unlike a fixed-size field, a varint cannot be validated with `CanRead(n)`: its
+length depends on the data. `CanRead(10)` looks like a workaround, but it
+over-reads and rejects valid input at the end of a buffer:
+
+```go
+c := bt.NewCursor([]byte{0x2A}) // a valid one-byte varint
+c.CanRead(10)                   // false, yet ULEB128() succeeds
+```
+
+For boundaries where running out of bytes is expected — the end of a buffer or
+a `Stream` refill — use the error-returning pair:
+
+```go
+v, err := c.TryULEB128()  // or TrySLEB128
+```
+
+- `ErrTruncated`: the buffer ended inside the varint. The offset is unchanged;
+  refill and retry.
+- `ErrVarintOverflow`: the varint does not fit 64 bits (including a continuation
+  bit on the 10th byte). Retrying cannot help.
+- On success the result and the offset are identical to `ULEB128`/`SLEB128`,
+  including non-canonical encodings such as `0x80 0x00`.
+
+The panicking methods remain the fast path; the `Try*` loop trades the unrolled
+tail for a bounds check per byte (i3-10100, ten runs):
+
+| Case | `ULEB128` | `TryULEB128` |
+| --- | --- | --- |
+| 1 byte | 2.6 ns | 4.0 ns |
+| 2 bytes | 3.2 ns | 5.6 ns |
+| 3 bytes | 5.3 ns | 7.3 ns |
+| 5 bytes | 6.3 ns | 10.8 ns |
+| 10 bytes | 8.5 ns | 18.5 ns |
+
+All cases are allocation-free, and `SLEB128`/`TrySLEB128` track within ~5%.
+A fuzz target (`FuzzTryVarintMatchesPanic`) asserts that both pairs agree on
+value, offset and failure for arbitrary bytes.
+
+## 4.9 Pitfalls
 
 - **Negative integers cost 10 bytes.** In two's complement, bit 63 is always
   set, so the encoder always emits the maximum length. If size matters more
   than compatibility, use zigzag (`binary.AppendVarint`).
 - **Truncated varints are data errors, not panics you should recover from.**
-  Validate the region first with `CanRead(10)` if the source is untrusted.
+  At a buffer or stream boundary use `TryULEB128`/`TrySLEB128` (section 4.8)
+  instead of `CanRead(10)`, which over-reads.
 - **`SLEB128` is DWARF, not zigzag.** See section 4.2.

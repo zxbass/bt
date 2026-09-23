@@ -1,5 +1,14 @@
 # Changelog
 
+## v0.5.1 - 2026-09-23
+
+- `Cursor.TryULEB128`/`TrySLEB128` decode varints without panicking, returning
+  `ErrTruncated` (refill and retry) or `ErrVarintOverflow` (malformed data).
+  `ULEB128`/`SLEB128` are unchanged. `FuzzTryVarintMatchesPanic` asserts both
+  pairs agree on value, offset and failure.
+- Docs: varints at buffer/stream boundaries (chapter 4.8, 6.1), the
+  `CanRead(10)` pitfall, and a new decision entry (9.14).
+
 ## v0.5.0 - 2026-09-23
 
 - `Cursor.SubInto(dst, n)` parses a length-delimited record into a caller-owned

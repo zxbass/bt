@@ -42,7 +42,7 @@ does and how to keep it fast.
 
 | File | Public surface | Subtleties |
 | --- | --- | --- |
-| `bt.go` | `Cursor`, `CStr`, `CStrOrRest`, `ErrNoNul` | panic/rollback contract, zero-copy slices, unrolled varints, `Align` |
+| `bt.go` | `Cursor`, `CStr`, `CStrOrRest`, `ErrNoNul`, `ErrTruncated`, `ErrVarintOverflow` | panic/rollback contract, zero-copy slices, unrolled varints, `TryULEB128`/`TrySLEB128`, `Align` |
 | `io.go` | `NewCursorFromReader`, `Cursor.Read`, `Cursor.ReadByte` | `io.EOF` instead of panics at the buffer end |
 | `iter.go` | `Records`, `IndexedRecords`, `Chunks` | `iter.Seq`, zero allocations, capped slices |
 | `stream.go` | `Stream`, `WithMaxBuffer`, `ErrBufferLimit` | sticky I/O errors, window compaction, buffer limits |

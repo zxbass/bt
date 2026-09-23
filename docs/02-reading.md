@@ -216,8 +216,9 @@ n, err := c.Read(buf)     // 0, io.EOF at the end; never panics
 b, err := c.ReadByte()    // 0, io.EOF at the end; never panics
 ```
 
-These are the only read methods that return errors instead of panicking; they
-exist so a cursor can be plugged into `io.Copy`, `bufio.Scanner`, `gzip`, etc.
+Together with `TryULEB128`/`TrySLEB128` (chapter 4), these are the only read
+methods that return errors instead of panicking; they exist so a cursor can be
+plugged into `io.Copy`, `bufio.Scanner`, `gzip`, etc.
 `NewCursorFromReader(r)` buffers a whole reader and returns a regular cursor
 (use `Stream` for incremental parsing).
 

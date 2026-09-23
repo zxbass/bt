@@ -73,6 +73,35 @@ kind := st.Cursor().U8() // re-acquire, then commit what was consumed
 st.Advance(1)
 ```
 
+### Varints across fill boundaries
+
+A fixed-size field can be validated with `Fill(n)`; a varint cannot, because its
+length is data-dependent, and `CanRead(10)` would reject a valid short varint in
+the last buffered byte. Use `TryULEB128`/`TrySLEB128` (chapter 4):
+
+```go
+for {
+	c := st.Cursor()
+	size, err := c.TryULEB128()
+	if errors.Is(err, bt.ErrTruncated) {
+		if ferr := st.Fill(st.Buffered() + 1); ferr != nil {
+			return ferr // the stream ended inside a varint
+		}
+		continue // Fill invalidates c; re-acquire it on the next pass
+	}
+	if err != nil {
+		return err // bt.ErrVarintOverflow: the data is malformed
+	}
+	st.Advance(c.Pos())
+	handle(size)
+	break
+}
+```
+
+`ErrTruncated` leaves the offset unchanged, so the retry starts at the same
+byte; `ErrVarintOverflow` is final, because no amount of refilling makes a
+64-bit overflow valid.
+
 ### Memory behaviour
 
 Without a limit, the window grows by doubling starting from 512 bytes. A

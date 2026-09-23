@@ -47,7 +47,7 @@ where each source is used.
 - [Wikipedia: DWARF](https://en.wikipedia.org/wiki/DWARF) - accessible
   overview (chapter 4).
 - [Wikipedia: Two's complement](https://en.wikipedia.org/wiki/Two%27s_complement) -
-  why negative varints cost ten bytes (chapter 4.8).
+  why negative varints cost ten bytes (chapter 4.9).
 - [Wikipedia: Endianness](https://en.wikipedia.org/wiki/Endianness) - the
   `LE`/`BE`/`order` split (chapter 2.4).
 - [Wikipedia: IEEE 754](https://en.wikipedia.org/wiki/IEEE_754) - the float

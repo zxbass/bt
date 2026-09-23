@@ -45,6 +45,7 @@ Ryzen 5 5600, Go 1.27 (recent runs):
 | --- | --- | --- |
 | `ULEB128` 1/2/3/5/10 bytes | 2.21 / 2.44 / 4.10 / 4.97 / 6.37 ns | unrolled, ch. 4 |
 | `SLEB128` 1/2/3/5/10 bytes | 2.31 / 2.85 / 4.65 / 5.51 / 6.74 ns | unrolled, ch. 4 |
+| `TryULEB128` 1/2/3/5/10 bytes (i3) | 4.0 / 5.6 / 7.3 / 10.8 / 18.5 ns | bounds-checked loop, ch. 4.8 |
 | `ParseRecords` | 821 MB/s, ~21 ns/record | includes string copies |
 | `Records(16)` / `Chunks(16)` | 6.4 / 16.4 GB/s | 0 allocs |
 | `Sub(16)` loop | 0.73 GB/s, 4096 allocs/op | 32 B per record |
