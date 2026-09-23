@@ -185,6 +185,27 @@ func (c *Cursor) Sub(n int) *Cursor {
 	return sub
 }
 
+// SubInto is like Sub but writes the window into a caller-owned cursor and
+// returns it for chaining. Reuse one Cursor to parse variable-size records
+// without allocating.
+//
+// dst must be non-nil and must not be the receiver. It aliases the same buffer
+// as the parent, and reusing dst releases the window it held before. If the
+// read fails, both cursors are left unchanged.
+func (c *Cursor) SubInto(dst *Cursor, n int) *Cursor {
+	if dst == nil {
+		panic("bt: nil SubInto destination")
+	}
+	if dst == c {
+		panic("bt: SubInto destination aliases the source")
+	}
+	c.need(n)
+	dst.b = c.b[c.off : c.off+n : c.off+n]
+	dst.off = 0
+	c.off += n
+	return dst
+}
+
 // U8 reads an unsigned 8-bit value.
 func (c *Cursor) U8() byte {
 	c.need(1)

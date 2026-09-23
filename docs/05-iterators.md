@@ -99,6 +99,7 @@ property from regressing.
 | `Records`/`IndexedRecords` | uniform fixed-size frames in memory | 0 allocs |
 | `Chunks` | bulk copy/hash/compress of fixed-size pieces | 0 allocs |
 | `Sub` | variable-size records with a length field | 32 B/record |
+| `SubInto` | same, with a caller-owned cursor to reuse | 0 allocs |
 | `Stream` | data arrives incrementally or must not be fully buffered | 3 allocs per stream |
 
 `Sub` is the odd one out because it returns `*Cursor` (chapter 2.6). For

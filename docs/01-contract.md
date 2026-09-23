@@ -184,6 +184,7 @@ buffer are independent.
 | `bt: truncate size N out of range (len M)` | `Truncate` |
 | `bt: bad align size N` | `Align` (size <= 0) |
 | `bt: bad chunk size N` | `Records`/`IndexedRecords`/`Chunks` (size <= 0) |
+| `bt: nil SubInto destination` / `bt: SubInto destination aliases the source` | `SubInto` with a nil or self-referencing destination |
 | `bt: N trailing bytes do not fit M-byte chunks` | iterators with a partial tail |
 | `bt: ULEB128 overflow` / `bt: SLEB128 overflow` | 10th varint byte out of range |
 | `bt: invalid Write count` | `Writer.WriteTo` with a misbehaving `io.Writer` |

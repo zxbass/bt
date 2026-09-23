@@ -441,6 +441,71 @@ func TestCursorSub(t *testing.T) {
 	}
 }
 
+func TestCursorSubInto(t *testing.T) {
+	data := []byte{1, 2, 3, 4, 5, 6}
+	c := NewCursor(data)
+	var rec Cursor
+
+	if got := c.SubInto(&rec, 3); got != &rec {
+		t.Fatalf("SubInto returned %p, want %p", got, &rec)
+	}
+	if rec.Pos() != 0 || rec.BytesLeft() != 3 {
+		t.Fatalf("sub Pos %d, left %d, want 0, 3", rec.Pos(), rec.BytesLeft())
+	}
+	if cap(rec.b) != 3 {
+		t.Fatalf("cap(sub) = %d, want 3", cap(rec.b))
+	}
+	if got := c.Pos(); got != 3 {
+		t.Fatalf("parent Pos() after SubInto = %d, want 3", got)
+	}
+
+	if got := rec.U8(); got != 1 {
+		t.Fatalf("sub U8() = %d, want 1", got)
+	}
+	if got := c.U8(); got != 4 {
+		t.Fatalf("parent U8() = %d, want 4 (cursors must be independent)", got)
+	}
+
+	c.SubInto(&rec, 2)
+	if rec.Pos() != 0 || rec.BytesLeft() != 2 {
+		t.Fatalf("reused sub Pos %d, left %d, want 0, 2", rec.Pos(), rec.BytesLeft())
+	}
+	if got := rec.U16BE(); got != 0x0506 {
+		t.Fatalf("reused sub U16BE() = %#x, want 0x0506", got)
+	}
+
+	c = NewCursor(data)
+	old := rec
+	mustPanic(t, "bt: need", func() { c.SubInto(&rec, 7) })
+	if got := c.Pos(); got != 0 {
+		t.Fatalf("parent Pos() after failed SubInto = %d, want 0", got)
+	}
+	if rec.off != old.off || len(rec.b) != len(old.b) {
+		t.Fatal("destination changed after a failed SubInto")
+	}
+
+	mustPanic(t, "bt: nil SubInto destination", func() { c.SubInto(nil, 1) })
+	mustPanic(t, "bt: SubInto destination aliases the source", func() { c.SubInto(c, 1) })
+	if got := c.Pos(); got != 0 {
+		t.Fatalf("parent Pos() after rejected SubInto = %d, want 0", got)
+	}
+}
+
+func TestSubIntoAllocations(t *testing.T) {
+	data := make([]byte, 64)
+
+	allocs := testing.AllocsPerRun(100, func() {
+		c := NewCursor(data)
+		var rec Cursor
+		for c.CanRead(4) {
+			sinkU8 = c.SubInto(&rec, 4).U8()
+		}
+	})
+	if allocs > 0 {
+		t.Fatalf("SubInto loop allocations = %v, want 0", allocs)
+	}
+}
+
 func TestCursorSlicesAreCapped(t *testing.T) {
 	c := NewCursor([]byte{1, 2, 3, 4, 5, 6})
 

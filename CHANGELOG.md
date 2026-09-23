@@ -1,5 +1,13 @@
 # Changelog
 
+## v0.5.0 - 2026-09-23
+
+- `Cursor.SubInto(dst, n)` parses a length-delimited record into a caller-owned
+  cursor: zero allocations and ~7x faster than `Sub` in the benchmark
+  (`BenchmarkSubIntoLoop` vs `BenchmarkSubLoop`). `Sub` is unchanged.
+- Docs: `SubInto` in the README API/navigation tables, `docs/02` and `docs/05`;
+  `docs/09.8` records why an internal `sync.Pool` was rejected.
+
 ## v0.4.2 - 2026-09-23
 
 - README: table of contents, a string-API comparison table that separates

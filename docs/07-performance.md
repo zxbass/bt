@@ -34,7 +34,8 @@ i3-10100, Go 1.26 (from the README table):
 | `ParseRecords` (mixed fields + names) | 461 MB/s, ~38 ns/record | 1 per name copy |
 | `Records(16)` | ~6 GB/s | 0 |
 | `Chunks(16)` | ~11.7 GB/s | 0 |
-| `Sub(16)` loop | ~0.3 GB/s | 1/record |
+| `Sub(16)` loop | ~0.4 GB/s | 1/record |
+| `SubInto(16)` loop | ~3 GB/s | 0 |
 | `Stream` over `bytes.Reader` | ~1 GB/s, ~15 ns/record | 3 per stream |
 | `UnsafeCast` (theoretical floor) | 0.54 ns | 0 |
 
@@ -122,7 +123,8 @@ for bulk data, memory bandwidth does. Rule of thumb on a modern desktop core:
 - zero-copy walk (`Chunks`, `Records`): 6-16 GB/s;
 - per-field scalar loop: 200-800 MB/s depending on field mix;
 - string copying (`RawStr`): ~1 GB/s per core;
-- `Sub` per record: ~0.7 GB/s with one allocation per record.
+- `Sub` per record: ~0.7 GB/s with one allocation per record; `SubInto` with a
+  reused cursor: ~3 GB/s and no allocations.
 
 `GOAMD64=v3` (or the equivalent on other architectures) can matter: the
 `bits.Len64` in `ULEB128Size` compiles to `LZCNT`, which is roughly twice as

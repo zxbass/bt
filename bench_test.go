@@ -395,6 +395,20 @@ func BenchmarkSubLoop(b *testing.B) {
 	}
 }
 
+func BenchmarkSubIntoLoop(b *testing.B) {
+	data := benchBuf()
+	b.SetBytes(int64(len(data)))
+	b.ReportAllocs()
+
+	var rec Cursor
+	for i := 0; i < b.N; i++ {
+		c := NewCursor(data)
+		for c.CanRead(16) {
+			sinkU8 = c.SubInto(&rec, 16).U8()
+		}
+	}
+}
+
 func BenchmarkChunksIter(b *testing.B) {
 	data := benchBuf()
 	b.SetBytes(int64(len(data)))

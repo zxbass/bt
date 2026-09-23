@@ -102,16 +102,25 @@ repeated patches inside one reservation safe.
 flush between them. Patching is not a natural flush point; the next write or an
 explicit `Flush` is.
 
-## 9.8 `Sub` returns a pointer and allocates
+## 9.8 `Sub` returns a pointer; `SubInto` is the zero-alloc escape hatch
 
-**Decision.** Keep `func (c *Cursor) Sub(n int) *Cursor` as is; documented cost
-is 32 bytes and one allocation per call.
+**Decision.** Keep `func (c *Cursor) Sub(n int) *Cursor` as is (32 bytes and one
+allocation per call) and add `SubInto(dst *Cursor, n int) *Cursor` for callers
+who want to reuse a cursor.
 
-**Why.** The alternative is returning `Cursor` by value, which removes the
-allocation but breaks chaining (`c.Sub(4).U8()` is invalid on a non-addressable
-value) and changes the public API. Zero-allocation iteration is available via
-`Records`/`Chunks`; `Sub` stays the convenient option for variable-size
-records.
+**Why.** Returning `Cursor` by value would remove the allocation but break
+chaining (`c.Sub(4).U8()` is invalid on a non-addressable value) and change the
+public API. `Records`/`Chunks` cover fixed-size frames; `SubInto` covers
+variable-size records in a hot loop without hidden state, and the benchmark
+difference is large: `Sub` ~0.4 GB/s with 1 alloc/record versus `SubInto`
+~3 GB/s with 0 allocs on the same data.
+
+**Rejected alternative: an internal `sync.Pool`.** `Cursor` is 32 bytes, so
+`Get`/`Put` overhead is comparable to the allocation it would save; the pool
+also needs a `Release` API (use-after-release, double release, retaining large
+buffers from GC) and introduces hidden global state, which this package
+deliberately avoids (section 9.11). Caller-owned reuse keeps the lifetime
+explicit.
 
 ## 9.9 Strict 24-bit range checks
 

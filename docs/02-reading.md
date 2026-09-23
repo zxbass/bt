@@ -46,6 +46,7 @@ side is about 1 ns per numeric read (see chapter 7).
 | `Bytes(n)` | return next `n` bytes, advance | result aliases, cap = `n` |
 | `Peek(n)` | return next `n` bytes | does not advance, cap = `n` |
 | `Sub(n)` | `*Cursor` over next `n` bytes, advance parent | aliases, allocates |
+| `SubInto(dst, n)` | same, written into a caller-owned cursor | aliases, 0 allocs |
 | `Align(size)` | advance to next multiple of `size` | returns padding bytes |
 
 `Bytes` and `Peek` cap the result so it cannot be resliced past its window:
@@ -189,8 +190,22 @@ is 106 against a budget of 80), so it allocates a 32-byte cursor per call.
 `BenchmarkSubLoop` on the Ryzen machine measures 0.73 GB/s and 1 allocation
 per record. When that matters:
 
-- use `Chunks`/`Records` instead (zero allocations, chapter 5),
+- use `Chunks`/`Records` for fixed-size frames (zero allocations, chapter 5),
+- use `SubInto` to reuse a caller-owned cursor in a variable-size hot loop
+  (`BenchmarkSubIntoLoop` on the same data: ~3 GB/s, 0 allocs),
 - or parse in place with `Skip`/`Bytes`.
+
+```go
+var record bt.Cursor
+for c.BytesLeft() > 0 {
+	c.SubInto(&record, int(c.U16LE()))
+	kind := record.U8()
+	_ = kind
+}
+```
+
+`SubInto` panics on a nil destination or when `dst` is the receiver itself,
+and a failed read leaves both cursors untouched.
 
 ## 2.7 `io` interop
 

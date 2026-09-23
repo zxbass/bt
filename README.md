@@ -63,7 +63,7 @@ Requires Go 1.23+ (iterators).
 
 | Group | Methods |
 | --- | --- |
-| Navigation | `Pos`, `BytesLeft`, `CanRead`, `Ensure`, `Skip`, `Align`, `Bytes`, `Peek`, `Sub` |
+| Navigation | `Pos`, `BytesLeft`, `CanRead`, `Ensure`, `Skip`, `Align`, `Bytes`, `Peek`, `Sub`, `SubInto` |
 | Unsigned | `U8`, `U16`/`U32`/`U64` (`order` + `LE`/`BE`), `U24LE`, `U24BE` |
 | Signed | `I8`, `I16`/`I32`/`I64` (`order` + `LE`/`BE`), `I24LE`, `I24BE` |
 | Floats | `F32`/`F64` (`order` + `LE`/`BE`) |
@@ -87,6 +87,19 @@ affect the parent offset:
 record := c.Sub(int(c.U16LE()))
 kind := record.U8()
 name := record.StrOrRest(record.BytesLeft())
+```
+
+`Sub` allocates one cursor per call. For variable-size records in a hot loop,
+reuse a caller-owned cursor with `SubInto`, which writes into an existing
+`Cursor` and returns it:
+
+```go
+var record bt.Cursor
+for c.BytesLeft() > 0 {
+	c.SubInto(&record, int(c.U16LE()))
+	kind := record.U8()
+	_ = kind
+}
 ```
 
 ## Strings
@@ -378,7 +391,8 @@ machine-dependent; the comparison columns are from the same run.
 | `ParseRecords` (mixed fields + name strings) | 461 MB/s, ~38 ns/record | — |
 | `Records(16)` iteration (64 KiB) | ~6 GB/s, 0 allocs | — |
 | `Chunks(16)` iteration (64 KiB) | ~11.7 GB/s, 0 allocs | — |
-| `Sub(16)` loop (same data) | ~0.3 GB/s, 1 alloc/record | — |
+| `Sub(16)` loop (same data) | ~0.4 GB/s, 1 alloc/record | — |
+| `SubInto(16)` loop (caller-owned cursor) | ~3 GB/s, 0 allocs | — |
 | `Stream` over `bytes.Reader` (16-byte records) | ~1 GB/s, ~15 ns/record | — |
 | `UnsafeCast` (no bounds check, native endian) | 0.54 ns | — |
 
