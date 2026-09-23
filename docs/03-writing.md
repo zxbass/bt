@@ -23,7 +23,7 @@ State helpers:
 | `Len()` | number of buffered bytes |
 | `Bytes()` | the buffer, aliased |
 | `Reset()` | drop bytes, **keep capacity** |
-| `Grow(n)` | ensure room for `n` more bytes without growing |
+| `Grow(n)` | pre-allocate room for `n` more bytes so writes do not reallocate |
 | `Truncate(n)` | drop everything past the first `n` bytes |
 | `Align(size)` | append zeros to the next size multiple, return count |
 
