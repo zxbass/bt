@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## v0.4.1 - 2026-09-23
 
 - `StreamWriter.Grow`/`Reserve` reject negative sizes even after a sticky
   error, and `Reserve(0)` no longer flushes pending bytes.
